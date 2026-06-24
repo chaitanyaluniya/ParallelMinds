@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: parallelminds-agent
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: WHISPER_MODEL
+        value: base
+      - key: DEBUG
+        value: "false"
