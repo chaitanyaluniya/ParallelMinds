@@ -3,13 +3,11 @@ services:
     name: parallelminds-agent
     runtime: docker
     plan: free
-    healthCheckPath: /api/health
+    healthCheckPath: /health
     envVars:
-      - key: OPENAI_API_KEY
+      - key: GOOGLE_API_KEY
         sync: false
-      - key: OPENAI_MODEL
-        value: gpt-4o-mini
-      - key: WHISPER_MODEL
-        value: base
-      - key: DEBUG
-        value: "false"
+      - key: GEMINI_MODEL
+        value: gemini-2.0-flash
+      - key: CORS_ORIGINS
+        sync: false
