@@ -17,19 +17,7 @@ flowchart LR
     Agent --> UI
 ```
 
-## Structure
 
-```
-ParallelMinds/
-├── backend/
-│   ├── main.py          # FastAPI + /api/process
-│   ├── agent.py         # intent + tool routing
-│   └── tools/           # pdf, ocr, audio, youtube, compare, code, sentiment, summarizer
-├── frontend/            # React + Vite
-├── tests/               # assignment test cases 1–5
-├── Dockerfile
-└── render.yaml
-```
 
 ## Setup
 
@@ -68,11 +56,6 @@ cd frontend && npm install && npm run dev
 | `MAX_HISTORY` | No | Chat memory turns per session (default 8) |
 | `YT_PROXY_LIST` | No | Comma/newline separated proxy URLs for rotating YouTube transcript fetch |
 
-## API
-
-`POST /api/process` — multipart form: `query` + `files[]`
-
-Returns: `answer`, `intent`, `plan`, `extracted`, `need_clr`, `question`
 
 ## Tests
 
@@ -84,26 +67,7 @@ Covers all 5 assignment test cases (mocked Gemini/transcripts for reliability).
 
 ## Design decisions
 
-- **Groq for LLM/OCR/audio** — generous free tier; PDF/YouTube stay local
-- **Flat tools/** — one file per task, no registry pattern
-- **Clarification first** — agent asks when intent is vague, never guesses
-- **YouTube chain** — find URL → fetch transcript → summarize in one autonomous run
-
-## Deploy (Render)
-
-This repo includes a Render blueprint in `render.yaml`:
-- `parallelminds-api` (Docker web service)
-- `parallelminds-web` (static frontend)
-
-### Steps
-1. Push this repo to GitHub.
-2. In Render: **New +** → **Blueprint** → select this repo.
-3. Set `GROQ_API_KEY` for `parallelminds-api`.
-4. Update `CORS_ORIGINS` to your real frontend URL (Render gives this after first deploy).
-5. Redeploy both services.
-
-### Expected live URLs
-- Frontend: `https://parallelminds-web.onrender.com`
-- Backend: `https://parallelminds-api.onrender.com`
-
-Frontend uses `VITE_API_URL` from Render env, so no local proxy is needed in production.
+- **Groq for LLM/OCR/audio** — because it has generous free tier 
+- **Flat tools/** — seprate files for every task
+- **Clarification first** — agent never guess asks follow up if intent is not clear 
+- **YouTube chain** — find url -> fetches the transcript -> summarizes
