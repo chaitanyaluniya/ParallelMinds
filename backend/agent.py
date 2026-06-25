@@ -5,9 +5,11 @@ import re
 import google.generativeai as genai
 from google.api_core.exceptions import GoogleAPIError
 
-from tools.code_tool import explain
+from tools.code import explain
+from tools.compare import compare
 from tools.sentiment import sentiment
 from tools.summarizer import answer, summarize
+from tools.youtube import ext_yt, find_urls
 
 INTENTS = {
     "summarize",
@@ -19,7 +21,7 @@ INTENTS = {
 }
 
 PROMPT = """Classify intent from the query and input types.
-JSON only: {{"intent":"...","needs_clarification":false,"question":null}}
+JSON only: {{"intent":"...","need_clr":false,"question":null}}
 
 Intents:
 - summarize — wants summary (1-line, bullets, paragraph)
@@ -29,7 +31,7 @@ Intents:
 - compare — compare content across multiple inputs
 - fetch_youtube — fetch/summarize a YouTube URL found in the content
 
-needs_clarification=true if task is unclear, vague (e.g. "do something with this"), or multiple intents fit equally.
+need_clr=true if task is unclear, vague (e.g. "do something with this"), or multiple intents fit equally.
 If true, question must be one short follow-up.
 
 Query: {query}
@@ -41,20 +43,20 @@ def cls_intent(query: str, types: list[str]) -> dict:
     if not query.strip() and not types:
         return {
             "intent": None,
-            "needs_clarification": True,
+            "need_clr": True,
             "question": "What would you like me to do?",
         }
 
     if not query.strip() and types:
         return {
             "intent": None,
-            "needs_clarification": True,
+            "need_clr": True,
             "question": "What do you want me to do with these files?",
         }
 
     key = os.getenv("GOOGLE_API_KEY")
     if not key:
-        return {"intent": None, "needs_clarification": True, "question": None, "error": "GOOGLE_API_KEY not set"}
+        return {"intent": None, "need_clr": True, "question": None, "error": "GOOGLE_API_KEY not set"}
 
     try:
         genai.configure(api_key=key)
@@ -63,10 +65,10 @@ def cls_intent(query: str, types: list[str]) -> dict:
             PROMPT.format(query=query.strip(), types=", ".join(types) or "none")
         )
         if not res.text:
-            return {"intent": None, "needs_clarification": True, "question": None, "error": "Empty Gemini response"}
+            return {"intent": None, "need_clr": True, "question": None, "error": "Empty Gemini response"}
         return prs_intent(res.text.strip())
     except (GoogleAPIError, ValueError) as e:
-        return {"intent": None, "needs_clarification": True, "question": None, "error": f"Classification failed: {e}"}
+        return {"intent": None, "need_clr": True, "question": None, "error": f"Classification failed: {e}"}
 
 
 def run(query: str, types: list[str], extracted: list[dict] | None = None) -> dict:
@@ -75,7 +77,7 @@ def run(query: str, types: list[str], extracted: list[dict] | None = None) -> di
 
     if result.get("error"):
         return {
-            "needs_clarification": True,
+            "need_clr": True,
             "question": result["error"],
             "answer": "",
             "intent": None,
@@ -83,9 +85,9 @@ def run(query: str, types: list[str], extracted: list[dict] | None = None) -> di
             "extracted": extracted,
         }
 
-    if result.get("needs_clarification"):
+    if result.get("need_clr"):
         return {
-            "needs_clarification": True,
+            "need_clr": True,
             "question": result.get("question") or "Could you clarify what you'd like me to do?",
             "answer": "",
             "intent": result.get("intent"),
@@ -101,7 +103,7 @@ def run(query: str, types: list[str], extracted: list[dict] | None = None) -> di
         out = summarize(ctx, query)
         plan[0]["status"] = "failed" if out.get("error") else "done"
         return {
-            "needs_clarification": False,
+            "need_clr": False,
             "question": None,
             "answer": out.get("text", "") if not out.get("error") else out["error"],
             "intent": intent,
@@ -114,7 +116,7 @@ def run(query: str, types: list[str], extracted: list[dict] | None = None) -> di
         out = answer(ctx, query)
         plan[0]["status"] = "failed" if out.get("error") else "done"
         return {
-            "needs_clarification": False,
+            "need_clr": False,
             "question": None,
             "answer": out.get("text", "") if not out.get("error") else out["error"],
             "intent": intent,
@@ -127,7 +129,7 @@ def run(query: str, types: list[str], extracted: list[dict] | None = None) -> di
         out = sentiment(ctx)
         plan[0]["status"] = "failed" if out.get("error") else "done"
         return {
-            "needs_clarification": False,
+            "need_clr": False,
             "question": None,
             "answer": out.get("text", "") if not out.get("error") else out["error"],
             "intent": intent,
@@ -140,7 +142,69 @@ def run(query: str, types: list[str], extracted: list[dict] | None = None) -> di
         out = explain(ctx, query)
         plan[0]["status"] = "failed" if out.get("error") else "done"
         return {
-            "needs_clarification": False,
+            "need_clr": False,
+            "question": None,
+            "answer": out.get("text", "") if not out.get("error") else out["error"],
+            "intent": intent,
+            "plan": plan,
+            "extracted": extracted,
+        }
+
+    if intent == "compare":
+        if len(extracted) < 2:
+            return {
+                "need_clr": False,
+                "question": None,
+                "answer": "Need at least 2 inputs to compare",
+                "intent": intent,
+                "plan": [],
+                "extracted": extracted,
+            }
+        plan = [{"step": 1, "tool": "compare", "status": "running"}]
+        out = compare(ctx, query)
+        plan[0]["status"] = "failed" if out.get("error") else "done"
+        return {
+            "need_clr": False,
+            "question": None,
+            "answer": out.get("text", "") if not out.get("error") else out["error"],
+            "intent": intent,
+            "plan": plan,
+            "extracted": extracted,
+        }
+
+    if intent == "fetch_youtube":
+        urls = find_urls(f"{query}\n{ctx}")
+        if not urls:
+            return {
+                "need_clr": False,
+                "question": None,
+                "answer": "No YouTube URL found in the inputs",
+                "intent": intent,
+                "plan": [{"step": 1, "tool": "find_url", "status": "failed"}],
+                "extracted": extracted,
+            }
+
+        plan = [
+            {"step": 1, "tool": "find_url", "status": "done"},
+            {"step": 2, "tool": "fetch_youtube", "status": "running"},
+        ]
+        yt = ext_yt(urls[0])
+        if yt.get("error"):
+            plan[1]["status"] = "failed"
+            return {
+                "need_clr": False,
+                "question": None,
+                "answer": yt["error"],
+                "intent": intent,
+                "plan": plan,
+                "extracted": extracted,
+            }
+        plan[1]["status"] = "done"
+        plan.append({"step": 3, "tool": "summarize", "status": "running"})
+        out = summarize(yt["text"], query)
+        plan[2]["status"] = "failed" if out.get("error") else "done"
+        return {
+            "need_clr": False,
             "question": None,
             "answer": out.get("text", "") if not out.get("error") else out["error"],
             "intent": intent,
@@ -149,7 +213,7 @@ def run(query: str, types: list[str], extracted: list[dict] | None = None) -> di
         }
 
     return {
-        "needs_clarification": False,
+        "need_clr": False,
         "question": None,
         "answer": "",
         "intent": intent,
@@ -180,8 +244,8 @@ def prs_intent(raw: str) -> dict:
             intent = "ans_ques"
         return {
             "intent": intent,
-            "needs_clarification": bool(data.get("needs_clarification")),
+            "need_clr": bool(data.get("need_clr")),
             "question": data.get("question"),
         }
     except json.JSONDecodeError:
-        return {"intent": "ans_ques", "needs_clarification": False, "question": None}
+        return {"intent": "ans_ques", "need_clr": False, "question": None}

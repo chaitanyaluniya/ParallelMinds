@@ -31,6 +31,18 @@ def ext_yt(url: str) -> dict:
         return {"text": "", "video_id": vid, "error": f"Transcript fetch failed: {e}"}
 
 
+def find_urls(text: str) -> list[str]:
+    seen: set[str] = set()
+    urls: list[str] = []
+    for match in PATTERN.finditer(text):
+        vid = match.group(1)
+        if vid in seen:
+            continue
+        seen.add(vid)
+        urls.append(f"https://www.youtube.com/watch?v={vid}")
+    return urls
+
+
 def vid_from(url: str) -> str | None:
     url = url.strip()
     if re.fullmatch(r"[\w-]{11}", url):

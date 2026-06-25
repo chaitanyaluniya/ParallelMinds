@@ -21,7 +21,7 @@ def ext_pdf(data: bytes) -> dict:
             return {
                 "text": text,
                 "pages": len(pdf.pages),
-                "urls": _find_youtube_urls(text),
+                "urls": youtube_url(text),
             }
     except (ValueError, OSError, PdfminerException) as e:
         return {"text": "", "pages": 0, "urls": [], "error": f"Invalid or corrupted PDF: {e}"}
@@ -30,7 +30,7 @@ def ext_pdf(data: bytes) -> dict:
 def youtube_url(text: str) -> list[str]:
     seen: set[str] = set()
     urls: list[str] = []
-    for match in YOUTUBE_PATTERN.finditer(text):
+    for match in PATTERN.finditer(text):
         video_id = match.group(1)
         if video_id in seen:
             continue

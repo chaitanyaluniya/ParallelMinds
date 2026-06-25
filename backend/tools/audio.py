@@ -7,7 +7,7 @@ import time
 import google.generativeai as genai
 from google.api_core.exceptions import GoogleAPIError
 
-EXT_MIME = {
+AUDIO = {
     ".mp3": "audio/mpeg",
     ".wav": "audio/wav",
     ".m4a": "audio/mp4",
@@ -19,7 +19,7 @@ def ext_audio(data: bytes, name: str) -> dict:
         return {"text": "", "duration": None, "error": "Empty audio data"}
 
     ext = os.path.splitext(name or "")[1].lower()
-    mime = EXT_MIME.get(ext)
+    mime = AUDIO.get(ext)
     if not mime:
         return {"text": "", "duration": None, "error": f"Unsupported audio type: {ext or 'unknown'}"}
 
