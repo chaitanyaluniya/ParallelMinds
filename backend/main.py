@@ -21,7 +21,7 @@ load_dotenv()
 
 app = FastAPI(title="ParallelMinds")
 MAX_MB = MAX_FILE // (1024 * 1024)
-WEB_DIR = Path(__file__).resolve().parent.parent / "web"
+WEB_DIR = Path(__file__).resolve().parent / "web"
 
 origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
 
