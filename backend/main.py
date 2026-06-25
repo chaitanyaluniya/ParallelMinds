@@ -1,10 +1,13 @@
+import json
 import os
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 
-from agent import run
+from agent import run, run_live
+from cost import estimate
 from tools.audio import ext_audio
 from tools.ocr import ext_img
 from tools.pdf import ext_pdf
@@ -29,6 +32,17 @@ def health():
     return {"status": "ok"}
 
 
+@app.post("/api/estimate")
+async def est(query: str = Form(default=""), files_meta: str = Form(default="[]")):
+    try:
+        meta = json.loads(files_meta)
+    except json.JSONDecodeError:
+        meta = []
+
+    types = types_from(meta, query)
+    return estimate(query, types, meta)
+
+
 @app.post("/api/process")
 async def process(query: str = Form(default=""), files: list[UploadFile] = File(default=[])):
     extracted = []
@@ -40,6 +54,39 @@ async def process(query: str = Form(default=""), files: list[UploadFile] = File(
         types.append("text")
 
     return run(query, types, extracted)
+
+
+@app.post("/api/stream")
+async def stream(query: str = Form(default=""), files: list[UploadFile] = File(default=[])):
+    extracted = []
+    for file in files:
+        extracted.append(await parse_file(file))
+
+    types = [e["type"] for e in extracted]
+    if query.strip():
+        types.append("text")
+
+    def events():
+        for ev in run_live(query, types, extracted):
+            yield f"data: {json.dumps(ev)}\n\n"
+
+    return StreamingResponse(events(), media_type="text/event-stream")
+
+
+def types_from(meta: list[dict], query: str) -> list[str]:
+    types = []
+    for f in meta:
+        mime = f.get("type") or ""
+        name = (f.get("name") or "").lower()
+        if mime == "application/pdf" or name.endswith(".pdf"):
+            types.append("pdf")
+        elif mime.startswith("image/") or name.endswith((".jpg", ".jpeg", ".png")):
+            types.append("image")
+        elif mime.startswith("audio/") or name.endswith((".mp3", ".wav", ".m4a")):
+            types.append("audio")
+    if query.strip():
+        types.append("text")
+    return types
 
 
 async def parse_file(file: UploadFile) -> dict:

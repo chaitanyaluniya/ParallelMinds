@@ -2,12 +2,13 @@ import json
 import os
 import re
 
-from llm import text
+from format import fmt_summary, strip_md
+from llm import stream, text
 
-from tools.code import explain, looks_like_code
-from tools.compare import compare
-from tools.sentiment import sentiment
-from tools.summarizer import answer, summarize
+from tools.code import code_prompt, looks_like_code
+from tools.compare import cmp_prompt
+from tools.sentiment import sent_prompt
+from tools.summarizer import qa_prompt, sum_prompt
 from tools.youtube import ext_yt, find_urls
 
 INTENTS = {
@@ -39,58 +40,164 @@ Input types: {types}
 
 
 def run(query: str, types: list[str], extracted: list[dict] | None = None) -> dict:
+    out = {}
+    for ev in run_live(query, types, extracted):
+        if ev["type"] == "plan":
+            out["plan"] = ev["plan"]
+        elif ev["type"] == "token":
+            out["answer"] = out.get("answer", "") + ev["text"]
+        elif ev["type"] == "done":
+            out.update(ev)
+            break
+    return {
+        "need_clr": out.get("need_clr", False),
+        "question": out.get("question"),
+        "answer": out.get("answer", ""),
+        "intent": out.get("intent"),
+        "plan": out.get("plan", []),
+        "extracted": out.get("extracted", []),
+    }
+
+
+def run_live(query: str, types: list[str], extracted: list[dict] | None = None):
     extracted = extracted or []
     result = cls_intent(query, types, extracted)
 
     if result.get("error"):
-        return fail_clr(result["error"], extracted)
+        yield done(fail_clr(result["error"], extracted))
+        return
 
     if result.get("need_clr"):
-        return {
+        yield done({
             "need_clr": True,
             "question": result.get("question") or "Could you clarify what you'd like me to do?",
             "answer": "",
             "intent": result.get("intent"),
             "plan": [],
             "extracted": extracted,
-        }
+        })
+        return
 
     intent = result["intent"]
     ctx = content(extracted, query)
 
     if intent == "summarize":
-        return do_summarize(query, ctx, extracted)
+        yield from live_summarize(query, ctx, extracted)
+        return
 
     if intent == "ans_ques":
-        plan = [{"step": 1, "tool": "ans_ques", "status": "running"}]
-        out = answer(ctx, query)
-        plan[0]["status"] = "failed" if out.get("error") else "done"
-        return ok(out.get("text", "") if not out.get("error") else out["error"], intent, plan, extracted)
+        yield from live_one("ans_ques", intent, qa_prompt(ctx, query), extracted)
+        return
 
     if intent == "sentiment":
-        plan = [{"step": 1, "tool": "sentiment", "status": "running"}]
-        out = sentiment(ctx)
-        plan[0]["status"] = "failed" if out.get("error") else "done"
-        return ok(out.get("text", "") if not out.get("error") else out["error"], intent, plan, extracted)
+        yield from live_one("sentiment", intent, sent_prompt(ctx), extracted)
+        return
 
     if intent == "explain_code":
-        plan = [{"step": 1, "tool": "explain_code", "status": "running"}]
-        out = explain(code_ctx(extracted, query), query)
-        plan[0]["status"] = "failed" if out.get("error") else "done"
-        return ok(out.get("text", "") if not out.get("error") else out["error"], intent, plan, extracted)
+        yield from live_one("explain_code", intent, code_prompt(code_ctx(extracted, query), query), extracted, strip_md)
+        return
 
     if intent == "compare":
         if len(extracted) < 2:
-            return ok("Need at least 2 inputs to compare", intent, [], extracted)
-        plan = [{"step": 1, "tool": "compare", "status": "running"}]
-        out = compare(ctx, query)
-        plan[0]["status"] = "failed" if out.get("error") else "done"
-        return ok(out.get("text", "") if not out.get("error") else out["error"], intent, plan, extracted)
+            yield done(ok("Need at least 2 inputs to compare", intent, [], extracted))
+            return
+        yield from live_one("compare", intent, cmp_prompt(ctx, query), extracted)
+        return
 
     if intent == "fetch_youtube":
-        return do_youtube(query, extracted)
+        yield from live_youtube(query, extracted)
+        return
 
-    return ok("", intent, [], extracted)
+    yield done(ok("", intent, [], extracted))
+
+
+def live_one(tool: str, intent: str, prompt: str, extracted: list[dict], fmt=None):
+    plan = [{"step": 1, "tool": tool, "status": "running"}]
+    yield plan_ev(plan)
+
+    text_out, err = yield from stream_llm(prompt, fmt)
+    plan[0]["status"] = "failed" if err else "done"
+    yield plan_ev(plan)
+    yield done(ok(text_out if not err else err, intent, plan, extracted))
+
+
+def live_summarize(query: str, ctx: str, extracted: list[dict]):
+    plan = []
+    step = 1
+    for item in extracted:
+        if item.get("type") == "audio" and item.get("text"):
+            plan.append({"step": step, "tool": "transcribe", "status": "done"})
+            step += 1
+            break
+
+    plan.append({"step": step, "tool": "summarize", "status": "running"})
+    yield plan_ev(plan)
+
+    text_out, err = yield from stream_llm(sum_prompt(ctx, query), fmt_summary)
+    plan[-1]["status"] = "failed" if err else "done"
+    yield plan_ev(plan)
+    yield done(ok(text_out if not err else err, "summarize", plan, extracted))
+
+
+def live_youtube(query: str, extracted: list[dict]):
+    ctx = content(extracted, query)
+    urls = find_urls(f"{query}\n{ctx}")
+    if not urls:
+        plan = [{"step": 1, "tool": "find_url", "status": "failed"}]
+        yield plan_ev(plan)
+        yield done(ok("No YouTube URL found in the inputs", "fetch_youtube", plan, extracted))
+        return
+
+    plan = [
+        {"step": 1, "tool": "find_url", "status": "done"},
+        {"step": 2, "tool": "fetch_youtube", "status": "running"},
+    ]
+    yield plan_ev(plan)
+
+    yt = ext_yt(urls[0])
+    if yt.get("error"):
+        plan[1]["status"] = "failed"
+        yield plan_ev(plan)
+        yield done(ok(yt["error"], "fetch_youtube", plan, extracted))
+        return
+
+    plan[1]["status"] = "done"
+    yield plan_ev(plan)
+
+    if re.search(r"summarize|summary|summarise", query, re.I):
+        plan.append({"step": 3, "tool": "summarize", "status": "running"})
+        yield plan_ev(plan)
+
+        text_out, err = yield from stream_llm(sum_prompt(yt["text"], query), fmt_summary)
+        plan[2]["status"] = "failed" if err else "done"
+        yield plan_ev(plan)
+        yield done(ok(text_out if not err else err, "fetch_youtube", plan, extracted))
+        return
+
+    yield {"type": "token", "text": yt["text"]}
+    yield done(ok(yt["text"], "fetch_youtube", plan, extracted))
+
+
+def plan_ev(plan: list) -> dict:
+    return {"type": "plan", "plan": [dict(s) for s in plan]}
+
+
+def stream_llm(prompt: str, fmt=None):
+    parts = []
+    for chunk in stream(prompt):
+        if isinstance(chunk, dict) and chunk.get("error"):
+            return (chunk["error"], chunk["error"])
+        parts.append(chunk)
+        yield {"type": "token", "text": chunk}
+    raw = "".join(parts).strip()
+    if not raw:
+        return ("Empty LLM response", "Empty LLM response")
+    out = fmt(raw) if fmt else raw
+    return (out, None)
+
+
+def done(payload: dict) -> dict:
+    return {"type": "done", **payload}
 
 
 def cls_intent(query: str, types: list[str], extracted: list[dict]) -> dict:
@@ -138,46 +245,6 @@ def rule_intent(query: str, types: list[str], extracted: list[dict]) -> str | No
         return "ans_ques"
 
     return None
-
-
-def do_summarize(query: str, ctx: str, extracted: list[dict]) -> dict:
-    plan = []
-    step = 1
-    for item in extracted:
-        if item.get("type") == "audio" and item.get("text"):
-            plan.append({"step": step, "tool": "transcribe", "status": "done"})
-            step += 1
-            break
-
-    plan.append({"step": step, "tool": "summarize", "status": "running"})
-    out = summarize(ctx, query)
-    plan[-1]["status"] = "failed" if out.get("error") else "done"
-    return ok(out.get("text", "") if not out.get("error") else out["error"], "summarize", plan, extracted)
-
-
-def do_youtube(query: str, extracted: list[dict]) -> dict:
-    ctx = content(extracted, query)
-    urls = find_urls(f"{query}\n{ctx}")
-    if not urls:
-        return ok("No YouTube URL found in the inputs", "fetch_youtube", [{"step": 1, "tool": "find_url", "status": "failed"}], extracted)
-
-    plan = [
-        {"step": 1, "tool": "find_url", "status": "done"},
-        {"step": 2, "tool": "fetch_youtube", "status": "running"},
-    ]
-    yt = ext_yt(urls[0])
-    if yt.get("error"):
-        plan[1]["status"] = "failed"
-        return ok(yt["error"], "fetch_youtube", plan, extracted)
-
-    plan[1]["status"] = "done"
-    if re.search(r"summarize|summary|summarise", query, re.I):
-        plan.append({"step": 3, "tool": "summarize", "status": "running"})
-        out = summarize(yt["text"], query)
-        plan[2]["status"] = "failed" if out.get("error") else "done"
-        return ok(out.get("text", "") if not out.get("error") else out["error"], "fetch_youtube", plan, extracted)
-
-    return ok(yt["text"], "fetch_youtube", plan, extracted)
 
 
 def content(extracted: list[dict], query: str) -> str:

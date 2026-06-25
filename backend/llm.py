@@ -11,13 +11,17 @@ def _client() -> Groq | None:
     return Groq(api_key=key)
 
 
+def _model() -> str:
+    return os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
+
+
 def text(prompt: str) -> dict:
     client = _client()
     if not client:
         return {"text": "", "error": "GROQ_API_KEY not set"}
     try:
         res = client.chat.completions.create(
-            model=os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile"),
+            model=_model(),
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
         )
@@ -27,6 +31,42 @@ def text(prompt: str) -> dict:
         return {"text": out.strip()}
     except APIError as e:
         return {"text": "", "error": f"LLM failed: {e}"}
+
+
+def stream(prompt: str):
+    client = _client()
+    if not client:
+        yield {"error": "GROQ_API_KEY not set"}
+        return
+    try:
+        res = client.chat.completions.create(
+            model=_model(),
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.2,
+            stream=True,
+        )
+        for chunk in res:
+            part = chunk.choices[0].delta.content
+            if part:
+                yield part
+    except APIError as e:
+        yield {"error": f"LLM failed: {e}"}
+
+
+def ask(prompt: str, on_chunk=None) -> dict:
+    if not on_chunk:
+        return text(prompt)
+
+    parts = []
+    for chunk in stream(prompt):
+        if isinstance(chunk, dict) and chunk.get("error"):
+            return {"text": "", "error": chunk["error"]}
+        parts.append(chunk)
+        on_chunk(chunk)
+    out = "".join(parts).strip()
+    if not out:
+        return {"text": "", "error": "Empty LLM response"}
+    return {"text": out}
 
 
 def vision(prompt: str, data: bytes, mime: str) -> dict:

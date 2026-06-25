@@ -1,4 +1,4 @@
-from llm import text
+from llm import ask
 
 PROMPT = """Analyze sentiment of the content below.
 Format exactly:
@@ -10,7 +10,11 @@ Content:
 {context}"""
 
 
-def sentiment(context: str) -> dict:
+def sentiment(context: str, on_chunk=None) -> dict:
     if not context.strip():
         return {"text": "", "error": "No content to analyze"}
-    return text(PROMPT.format(context=context))
+    return ask(sent_prompt(context), on_chunk)
+
+
+def sent_prompt(context: str) -> str:
+    return PROMPT.format(context=context)

@@ -9,6 +9,21 @@ async def test_health(client):
 
 
 @pytest.mark.asyncio
+async def test_estimate(client):
+    res = await client.post(
+        "/api/estimate",
+        data={
+            "query": "summarize this",
+            "files_meta": '[{"name":"a.pdf","size":50000,"type":"application/pdf"}]',
+        },
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["cost_usd"] >= 0
+    assert "summarize" in data["tools"]
+
+
+@pytest.mark.asyncio
 async def test_process_routes_to_agent(client, monkeypatch):
     def fake_run(query, types, extracted=None):
         return {

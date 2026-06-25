@@ -27,7 +27,7 @@ function Extracted({ items }) {
   );
 }
 
-export default function PlanTrace({ plan, extracted }) {
+export default function PlanTrace({ plan, extracted, live }) {
   const [open, setOpen] = useState(true);
   if (!plan?.length && !extracted?.length) return null;
 
@@ -36,23 +36,24 @@ export default function PlanTrace({ plan, extracted }) {
       {plan?.length > 0 && (
         <div className="sub-panel">
           <button type="button" className="panel-toggle" onClick={() => setOpen(!open)}>
-            <span className="panel-label">Plan trace</span>
+            <span className="panel-label">{live ? "Tools running" : "Plan trace"}</span>
             <span className="panel-icon">{open ? "−" : "+"}</span>
           </button>
           {open && (
-            <ol className="plan-list">
-              {plan.map((step) => (
-                <li key={step.step}>
+            <ol className={`plan-list ${live ? "plan-live" : ""}`}>
+              {plan.map((step, i) => (
+                <li key={step.step} className={step.status === "running" ? "active" : ""}>
                   <span className="step-num">{step.step}</span>
                   <span className="step-tool">{step.tool}</span>
                   <span className={`step-status ${step.status}`}>{step.status}</span>
+                  {i < plan.length - 1 && <span className="step-line" />}
                 </li>
               ))}
             </ol>
           )}
         </div>
       )}
-      <Extracted items={extracted} />
+      {!live && <Extracted items={extracted} />}
     </div>
   );
 }

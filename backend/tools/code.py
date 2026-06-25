@@ -1,7 +1,7 @@
 import re
 
 from format import strip_md
-from llm import text
+from llm import ask
 
 PROMPT = """Explain the code below.
 Plain text only — no markdown, no asterisks, no backticks.
@@ -22,15 +22,20 @@ CODE_HINT = re.compile(
 )
 
 
-def explain(context: str, query: str = "") -> dict:
+def explain(context: str, query: str = "", on_chunk=None) -> dict:
     code = context.strip() or code_from_query(query)
     if not code.strip():
         return {"text": "", "error": "No code found in the input"}
-    hint = f"User note: {query}" if query.strip() else ""
-    out = text(PROMPT.format(hint=hint, code=code))
+    out = ask(code_prompt(context, query), on_chunk)
     if out.get("text"):
         out["text"] = strip_md(out["text"])
     return out
+
+
+def code_prompt(context: str, query: str = "") -> str:
+    code = context.strip() or code_from_query(query)
+    hint = f"User note: {query}" if query.strip() else ""
+    return PROMPT.format(hint=hint, code=code)
 
 
 def code_from_query(query: str) -> str:

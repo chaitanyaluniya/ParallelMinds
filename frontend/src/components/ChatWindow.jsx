@@ -11,7 +11,7 @@ function BotText({ text }) {
   ));
 }
 
-export default function ChatWindow({ messages, loading }) {
+export default function ChatWindow({ messages, loading, live }) {
   return (
     <div className="messages">
       {messages.length === 0 && !loading && (
@@ -28,12 +28,12 @@ export default function ChatWindow({ messages, loading }) {
           {msg.role === "bot" && <PlanTrace plan={msg.plan} extracted={msg.extracted} />}
         </div>
       ))}
-      {loading && (
+      {loading && live && (
         <div className="msg-group bot">
-          <div className="bubble bot loading">
-            <span className="spinner" />
-            Working...
+          <div className="bubble bot">
+            {live.text ? <BotText text={live.text} /> : <span className="muted">Thinking...</span>}
           </div>
+          <PlanTrace plan={live.plan} extracted={live.extracted} live />
         </div>
       )}
     </div>

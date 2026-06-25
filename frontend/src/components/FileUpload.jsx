@@ -8,7 +8,7 @@ function icon(name) {
   return "FILE";
 }
 
-export default function FileUpload({ query, setQuery, files, setFiles, onSend, loading }) {
+export default function FileUpload({ query, setQuery, files, setFiles, onSend, loading, cost }) {
   function onPick(e) {
     setFiles([...files, ...Array.from(e.target.files)]);
     e.target.value = "";
@@ -40,6 +40,11 @@ export default function FileUpload({ query, setQuery, files, setFiles, onSend, l
         </ul>
       )}
       <div className="composer-row">
+        {cost && (
+          <span className="cost-tag" title={cost.tools?.join(" → ")}>
+            {cost.cost_label}
+          </span>
+        )}
         <label className="attach-btn">
           +
           <input type="file" multiple accept={ACCEPT} onChange={onPick} disabled={loading} hidden />

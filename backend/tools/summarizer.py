@@ -1,5 +1,5 @@
-from format import fmt_summary, strip_md
-from llm import text
+from format import fmt_summary
+from llm import ask
 
 SUM_PROMPT = """Summarize the content below.
 Plain text only — no markdown, no asterisks.
@@ -24,15 +24,23 @@ Content:
 {context}"""
 
 
-def summarize(context: str, query: str = "") -> dict:
-    hint = f"Focus: {query}" if query.strip() else ""
-    out = text(SUM_PROMPT.format(hint=hint, context=context or "(no content)"))
+def summarize(context: str, query: str = "", on_chunk=None) -> dict:
+    out = ask(sum_prompt(context, query), on_chunk)
     if out.get("text"):
         out["text"] = fmt_summary(out["text"])
     return out
 
 
-def answer(context: str, query: str) -> dict:
+def answer(context: str, query: str, on_chunk=None) -> dict:
     if not query.strip():
         return {"text": "", "error": "No question provided"}
-    return text(QA_PROMPT.format(query=query.strip(), context=context or "(no content)"))
+    return ask(qa_prompt(context, query), on_chunk)
+
+
+def sum_prompt(context: str, query: str = "") -> str:
+    hint = f"Focus: {query}" if query.strip() else ""
+    return SUM_PROMPT.format(hint=hint, context=context or "(no content)")
+
+
+def qa_prompt(context: str, query: str) -> str:
+    return QA_PROMPT.format(query=query.strip(), context=context or "(no content)")

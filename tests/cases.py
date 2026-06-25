@@ -17,10 +17,19 @@ def patch_intent(monkeypatch):
     return _set
 
 
+def patch_llm(monkeypatch, text):
+    def fake(prompt, fmt=None):
+        out = fmt(text) if fmt else text
+        yield {"type": "token", "text": out}
+        return (out, None)
+
+    monkeypatch.setattr("agent.stream_llm", fake)
+
+
 def tc1(patch_intent, monkeypatch):
     patch_intent("summarize")
     summary = "ONE-LINE: ML lecture intro\nBULLETS:\n- gradients\n- loss\n- optimizers\nPARAGRAPH: Five sentences here."
-    monkeypatch.setattr("agent.summarize", lambda ctx, q: {"text": summary})
+    patch_llm(monkeypatch, summary)
 
     extracted = [{
         "type": "audio",
@@ -37,10 +46,7 @@ def tc1(patch_intent, monkeypatch):
 
 def tc2(patch_intent, monkeypatch):
     patch_intent("ans_ques")
-    monkeypatch.setattr(
-        "agent.answer",
-        lambda ctx, q: {"text": "- Ship v1 by Friday\n- Review API docs\n- Schedule QA sync"},
-    )
+    patch_llm(monkeypatch, "- Ship v1 by Friday\n- Review API docs\n- Schedule QA sync")
 
     extracted = [{
         "type": "pdf",
@@ -55,7 +61,7 @@ def tc2(patch_intent, monkeypatch):
 
 def tc3(patch_intent, monkeypatch):
     patch_intent("explain_code")
-    monkeypatch.setattr("agent.explain", lambda ctx, q: {"text": "Language: Python\nBug: RecursionError\nComplexity: O(2^n)"})
+    patch_llm(monkeypatch, "Language: Python\nBug: RecursionError\nComplexity: O(2^n)")
 
     extracted = [{"type": "image", "name": "code.png", "text": "def fib(n): return fib(n-1)"}]
     result = run("Explain", ["image", "text"], extracted)
@@ -66,7 +72,7 @@ def tc3(patch_intent, monkeypatch):
 
 def tc3b(monkeypatch):
     monkeypatch.setattr("agent.cls_intent", lambda q, t, e: intent("explain_code"))
-    monkeypatch.setattr("agent.explain", lambda ctx, q: {"text": "Language: C++\nComplexity: O(n)"})
+    patch_llm(monkeypatch, "Language: C++\nComplexity: O(n)")
 
     code = "#include<bits/stdc++.h>\nclass Solution { public: int trap() { return 0; } };"
     result = run(f"{code}\nexplain the code", ["text"], [])
@@ -78,7 +84,7 @@ def tc3b(monkeypatch):
 def tc4(patch_intent, monkeypatch):
     patch_intent("fetch_youtube")
     monkeypatch.setattr("agent.ext_yt", lambda url: {"text": "transcript text here", "video_id": "dQw4w9WgXcQ"})
-    monkeypatch.setattr("agent.summarize", lambda ctx, q: {"text": "ONE-LINE: summary\nBULLETS:\n- a\n- b\n- c\nPARAGRAPH: five sentences."})
+    patch_llm(monkeypatch, "ONE-LINE: summary\nBULLETS:\n- a\n- b\n- c\nPARAGRAPH: five sentences.")
 
     extracted = [{"type": "pdf", "name": "doc.pdf", "text": "Video: https://www.youtube.com/watch?v=dQw4w9WgXcQ"}]
     result = run("summarize the youtube link", ["pdf", "text"], extracted)
@@ -98,7 +104,7 @@ def tc4b(monkeypatch):
 
 def tc5(patch_intent, monkeypatch):
     patch_intent("compare")
-    monkeypatch.setattr("agent.compare", lambda ctx, q: {"text": "Yes, both discuss gradient descent."})
+    patch_llm(monkeypatch, "Yes, both discuss gradient descent.")
 
     extracted = [
         {"type": "audio", "name": "lecture.mp3", "text": "gradient descent for neural nets"},
