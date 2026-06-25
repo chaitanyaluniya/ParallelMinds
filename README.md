@@ -28,10 +28,6 @@ flowchart LR
     Output --> UI
 ```
 
-Full architecture diagram: [docs/SYSTEM_ARCHITECTURE.md](docs/SYSTEM_ARCHITECTURE.md)
-
-
-
 ## Setup
 
 ```bash
