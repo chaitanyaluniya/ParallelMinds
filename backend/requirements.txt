@@ -6,7 +6,7 @@ python-dotenv>=1.0.1
 # Phase 2 — uncomment as tools are added
 google-generativeai>=0.8.0
 pdfplumber>=0.11.0
-# youtube-transcript-api>=0.6.2
+youtube-transcript-api>=0.6.2
 
 # Testing
 pytest>=8.3.0
