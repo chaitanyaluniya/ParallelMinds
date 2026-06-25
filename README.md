@@ -6,16 +6,29 @@ Multi-modal agent for the DSAI Assignment (June 2026). Accepts text, images, PDF
 
 ```mermaid
 flowchart LR
-    UI[React UI] --> API[FastAPI /api/process]
-    API --> Agent[agent.py]
-    Agent --> Tools[tools/]
-    Tools --> PDF[pdf]
-    Tools --> OCR[ocr]
-    Tools --> Audio[audio]
-    Tools --> YT[youtube]
-    Tools --> LLM[summarizer / sentiment / code / compare]
-    Agent --> UI
+    User[User] --> UI[React Chat UI]
+    UI --> API[FastAPI Backend]
+    API --> Parser[Input Parser]
+    Parser --> PDF[PDF Tool]
+    Parser --> OCR[Image OCR]
+    Parser --> Audio[Audio Transcription]
+    Parser --> Text[Text Context]
+    PDF --> Agent[Agent Core]
+    OCR --> Agent
+    Audio --> Agent
+    Text --> Agent
+    Agent --> Plan[Plan Trace]
+    Agent --> Tasks[Task Tools]
+    Tasks --> LLM[Groq APIs]
+    Tasks --> YT[YouTube Transcript Flow]
+    YT --> Proxy[Webshare Proxy Rotation]
+    LLM --> Output[Text-only Answer]
+    YT --> Output
+    Plan --> UI
+    Output --> UI
 ```
+
+Full architecture diagram: [docs/SYSTEM_ARCHITECTURE.md](docs/SYSTEM_ARCHITECTURE.md)
 
 
 
