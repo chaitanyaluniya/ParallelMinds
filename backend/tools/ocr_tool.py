@@ -5,15 +5,15 @@ import re
 import google.generativeai as genai
 from google.api_core.exceptions import GoogleAPIError
 
-ALLOWED_MIMES = {"image/jpeg", "image/png", "image/jpg"}
+FORMATS = {"image/jpeg", "image/png", "image/jpg"}
 
 
-def extract_image(data: bytes, mime: str) -> dict:
+def ext_img(data: bytes, mime: str) -> dict:
     if not data:
         return {"text": "", "confidence": "none", "error": "Empty image data"}
 
     mime = "image/jpeg" if mime == "image/jpg" else mime
-    if mime not in ALLOWED_MIMES:
+    if mime not in FORMATS:
         return {"text": "", "confidence": "none", "error": f"Unsupported image type: {mime}"}
 
     api_key = os.getenv("GOOGLE_API_KEY")
@@ -29,12 +29,12 @@ def extract_image(data: bytes, mime: str) -> dict:
         ])
         if not response.text:
             return {"text": "", "confidence": "none", "error": "Gemini returned empty response"}
-        return _parse_response(response.text.strip())
+        return parse_res(response.text.strip())
     except (GoogleAPIError, ValueError) as e:
         return {"text": "", "confidence": "none", "error": f"OCR failed: {e}"}
 
 
-def _parse_response(raw: str) -> dict:
+def parse_res(raw: str) -> dict:
     cleaned = raw
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned)
