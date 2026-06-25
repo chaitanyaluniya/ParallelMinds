@@ -243,7 +243,7 @@ def cls_intent(query: str, types: list[str], extracted: list[dict], sid: str = "
     out = text(PROMPT.format(
         query=query.strip(),
         types=", ".join(types) or "none",
-        history=hist_ctx(sid) or "none",
+        history=(hist_ctx(sid) if use_hist(query, extracted) else "") or "none",
     ))
     if out.get("error"):
         return {"intent": None, "need_clr": True, "question": None, "error": f"Classification failed: {out['error']}"}
@@ -278,7 +278,7 @@ def rule_intent(query: str, types: list[str], extracted: list[dict]) -> str | No
 
 
 def prep_ctx(extracted, query, sid="", k=3):
-    hist = hist_ctx(sid)
+    hist = hist_ctx(sid) if use_hist(query, extracted) else ""
     hist_tok = tokens(hist) if hist else 0
     q_tok = tokens(query) if query.strip() else 0
     budget = max(500, MAX_CTX - hist_tok - q_tok - 150)
@@ -302,6 +302,21 @@ def prep_ctx(extracted, query, sid="", k=3):
         q, _ = trim(query.strip(), budget)
         parts.append(q)
     return "\n\n".join(parts), rag_used
+
+
+def use_hist(query: str, extracted: list[dict]) -> bool:
+    if extracted:
+        return False
+    q = query.lower().strip()
+    if not q:
+        return False
+    if find_urls(q):
+        return False
+    # only short follow-ups should use memory
+    if len(q.split()) > 14:
+        return False
+    keys = ["this", "that", "it", "same", "again", "previous", "earlier", "continue", "more", "also"]
+    return any(k in q for k in keys)
 
 
 def content(extracted: list[dict], query: str) -> str:

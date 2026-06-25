@@ -1,4 +1,7 @@
 import re
+import urllib.parse
+import urllib.request
+import xml.etree.ElementTree as ET
 
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import NoTranscriptFound, TranscriptsDisabled, VideoUnavailable
@@ -29,7 +32,33 @@ def ext_yt(url: str) -> dict:
     except VideoUnavailable:
         return {"text": "", "video_id": vid, "error": "Video unavailable"}
     except Exception as e:
+        txt = timedtext(vid)
+        if txt:
+            return {"text": txt, "video_id": vid}
         return {"text": "", "video_id": vid, "error": f"Transcript fetch failed: {e}"}
+
+
+def timedtext(vid: str) -> str:
+    params = urllib.parse.urlencode({"v": vid, "lang": "en", "fmt": "srv3"})
+    url = f"https://www.youtube.com/api/timedtext?{params}"
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    try:
+        with urllib.request.urlopen(req, timeout=12) as r:
+            raw = r.read().decode("utf-8", errors="ignore").strip()
+    except Exception:
+        return ""
+    if not raw:
+        return ""
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError:
+        return ""
+    parts = []
+    for node in root.findall(".//text"):
+        txt = "".join(node.itertext()).strip()
+        if txt:
+            parts.append(txt)
+    return " ".join(parts).strip()
 
 
 def find_urls(text: str) -> list[str]:
