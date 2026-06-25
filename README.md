@@ -61,6 +61,11 @@ cd frontend && npm install && npm run dev
 | `GROQ_VISION_MODEL` | No | Vision/OCR model, default `meta-llama/llama-4-scout-17b-16e-instruct` |
 | `GROQ_WHISPER_MODEL` | No | Audio model, default `whisper-large-v3` |
 | `CORS_ORIGINS` | No | Comma-separated frontend URLs |
+| `MAX_FILE_MB` | No | Upload file size limit in MB (default 25) |
+| `MAX_AUDIO_MB` | No | Audio upload size limit in MB (default 25) |
+| `MAX_AUDIO_SEC` | No | Audio duration limit in seconds (default 600) |
+| `MAX_CTX_TOKENS` | No | Context cap before truncation (default 12000) |
+| `MAX_HISTORY` | No | Chat memory turns per session (default 8) |
 
 ## API
 
@@ -83,11 +88,21 @@ Covers all 5 assignment test cases (mocked Gemini/transcripts for reliability).
 - **Clarification first** — agent asks when intent is vague, never guesses
 - **YouTube chain** — find URL → fetch transcript → summarize in one autonomous run
 
-## Deploy
+## Deploy (Render)
 
-```bash
-docker build -t parallelminds .
-docker run -p 8000:8000 -e GROQ_API_KEY=... -e CORS_ORIGINS=... parallelminds
-```
+This repo includes a Render blueprint in `render.yaml`:
+- `parallelminds-api` (Docker web service)
+- `parallelminds-web` (static frontend)
 
-Or push to GitHub and deploy via `render.yaml`.
+### Steps
+1. Push this repo to GitHub.
+2. In Render: **New +** → **Blueprint** → select this repo.
+3. Set `GROQ_API_KEY` for `parallelminds-api`.
+4. Update `CORS_ORIGINS` to your real frontend URL (Render gives this after first deploy).
+5. Redeploy both services.
+
+### Expected live URLs
+- Frontend: `https://parallelminds-web.onrender.com`
+- Backend: `https://parallelminds-api.onrender.com`
+
+Frontend uses `VITE_API_URL` from Render env, so no local proxy is needed in production.

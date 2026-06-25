@@ -93,12 +93,12 @@ def run_live(query: str, types: list[str], extracted: list[dict] | None = None, 
 
     if intent == "ans_ques":
         ctx, rag_used = prep_ctx(extracted, query, sid, k=3)
-        yield from live_one("ans_ques", intent, qa_prompt(ctx, query), extracted, sid, query, rag_used=rag_used)
+        yield from live_one("ans_ques", intent, qa_prompt(ctx, query), extracted, sid, query, fmt=strip_md, rag_used=rag_used)
         return
 
     if intent == "sentiment":
         ctx, rag_used = prep_ctx(extracted, query, sid, k=3)
-        yield from live_one("sentiment", intent, sent_prompt(ctx), extracted, sid, query, rag_used=rag_used)
+        yield from live_one("sentiment", intent, sent_prompt(ctx), extracted, sid, query, fmt=strip_md, rag_used=rag_used)
         return
 
     if intent == "explain_code":
@@ -111,7 +111,7 @@ def run_live(query: str, types: list[str], extracted: list[dict] | None = None, 
             yield emit(ok("Need at least 2 inputs to compare", intent, [], extracted), sid, query)
             return
         ctx, rag_used = prep_ctx(extracted, query, sid, k=5)
-        yield from live_one("compare", intent, cmp_prompt(ctx, query), extracted, sid, query, rag_used=rag_used)
+        yield from live_one("compare", intent, cmp_prompt(ctx, query), extracted, sid, query, fmt=strip_md, rag_used=rag_used)
         return
 
     if intent == "fetch_youtube":

@@ -3,7 +3,7 @@ import axios from "axios";
 import ChatWindow from "./components/ChatWindow";
 import FileUpload from "./components/FileUpload";
 
-const MAX_FILE = 10 * 1024 * 1024;
+const API = (import.meta.env.VITE_API_URL || "").replace(/\/$/, "");
 
 function sid() {
   let id = sessionStorage.getItem("pm_sid");
@@ -55,7 +55,7 @@ export default function App() {
         JSON.stringify(files.map((f) => ({ name: f.name, size: f.size, type: f.type }))),
       );
       try {
-        const { data } = await axios.post("/api/estimate", form);
+        const { data } = await axios.post(`${API}/api/estimate`, form);
         setCost(data);
       } catch {
         setCost(null);
@@ -79,7 +79,7 @@ export default function App() {
     files.forEach((f) => form.append("files", f));
 
     try {
-      const res = await fetch("/api/stream", { method: "POST", body: form });
+      const res = await fetch(`${API}/api/stream`, { method: "POST", body: form });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
         throw new Error(err.detail || res.statusText);
