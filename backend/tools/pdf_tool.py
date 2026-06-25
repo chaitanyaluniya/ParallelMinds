@@ -2,7 +2,7 @@ import io
 import re
 
 import pdfplumber
-from pdfminer.pdfparser import PDFSyntaxError
+from pdfplumber.utils.exceptions import PdfminerException
 
 PATTERN = re.compile(
     r"(?:https?://)?(?:www\.)?(?:youtube\.com/(?:watch\?v=|embed/|shorts/)|youtu\.be/)([\w-]{11})",
@@ -23,7 +23,7 @@ def ext_pdf(data: bytes) -> dict:
                 "pages": len(pdf.pages),
                 "urls": youtube_url(text),
             }
-    except (ValueError, OSError, PDFSyntaxError) as e:
+    except (ValueError, OSError, PdfminerException) as e:
         return {"text": "", "pages": 0, "urls": [], "error": f"Invalid or corrupted PDF: {e}"}
 
 

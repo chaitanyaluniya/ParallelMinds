@@ -2,8 +2,7 @@ import json
 import os
 import re
 
-import google.generativeai as genai
-from google.api_core.exceptions import GoogleAPIError
+from llm import text
 
 from tools.code import explain
 from tools.compare import compare
@@ -54,21 +53,16 @@ def cls_intent(query: str, types: list[str]) -> dict:
             "question": "What do you want me to do with these files?",
         }
 
-    key = os.getenv("GOOGLE_API_KEY")
+    key = os.getenv("GROQ_API_KEY")
     if not key:
-        return {"intent": None, "need_clr": True, "question": None, "error": "GOOGLE_API_KEY not set"}
+        return {"intent": None, "need_clr": True, "question": None, "error": "GROQ_API_KEY not set"}
 
-    try:
-        genai.configure(api_key=key)
-        model = genai.GenerativeModel(os.getenv("GEMINI_MODEL", "gemini-2.0-flash"))
-        res = model.generate_content(
-            PROMPT.format(query=query.strip(), types=", ".join(types) or "none")
-        )
-        if not res.text:
-            return {"intent": None, "need_clr": True, "question": None, "error": "Empty Gemini response"}
-        return prs_intent(res.text.strip())
-    except (GoogleAPIError, ValueError) as e:
-        return {"intent": None, "need_clr": True, "question": None, "error": f"Classification failed: {e}"}
+    out = text(PROMPT.format(query=query.strip(), types=", ".join(types) or "none"))
+    if out.get("error"):
+        return {"intent": None, "need_clr": True, "question": None, "error": f"Classification failed: {out['error']}"}
+    if not out.get("text"):
+        return {"intent": None, "need_clr": True, "question": None, "error": "Empty LLM response"}
+    return prs_intent(out["text"])
 
 
 def run(query: str, types: list[str], extracted: list[dict] | None = None) -> dict:

@@ -1,7 +1,9 @@
 import json
+import os
 import re
 
-from llm import vision
+import google.generativeai as genai
+from google.api_core.exceptions import GoogleAPIError
 
 FORMATS = {"image/jpeg", "image/png", "image/jpg"}
 
@@ -11,14 +13,25 @@ def ext_img(data: bytes, mime: str) -> dict:
         return {"text": "", "confidence": "none", "error": "Empty image data"}
 
     mime = "image/jpeg" if mime == "image/jpg" else mime
-    if mime not in FORMATS:
+    if format not in FORMATS:
         return {"text": "", "confidence": "none", "error": f"Unsupported image type: {mime}"}
 
-    prompt = 'Extract all visible text. Reply JSON only: {"text":"...","confidence":"high|medium|low"}'
-    out = vision(prompt, data, mime)
-    if out.get("error"):
-        return {"text": "", "confidence": "none", "error": out["error"]}
-    return parse_res(out["text"])
+    api_key = os.getenv("GOOGLE_API_KEY")
+    if not api_key:
+        return {"text": "", "confidence": "none", "error": "GOOGLE_API_KEY not set"}
+
+    try:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(os.getenv("GEMINI_MODEL", "gemini-2.0-flash"))
+        response = model.generate_content([
+            'Extract all visible text. Reply with JSON only: {"text":"...","confidence":"high|medium|low"}',
+            {"mime_type": mime, "data": data},
+        ])
+        if not response.text:
+            return {"text": "", "confidence": "none", "error": "Gemini returned empty response"}
+        return parse_res(response.text.strip())
+    except (GoogleAPIError, ValueError) as e:
+        return {"text": "", "confidence": "none", "error": f"OCR failed: {e}"}
 
 
 def parse_res(raw: str) -> dict:
