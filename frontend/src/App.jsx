@@ -153,7 +153,7 @@ export default function App() {
             onSend={handleSend}
             loading={loading}
             cost={cost}
-            maxMb={10}
+            maxMb={25}
           />
         </footer>
       </div>

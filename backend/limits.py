@@ -1,6 +1,8 @@
 import os
 
-MAX_FILE = int(os.getenv("MAX_FILE_MB", "10")) * 1024 * 1024
+MAX_FILE = int(os.getenv("MAX_FILE_MB", "25")) * 1024 * 1024  # ~5–10 min mp3
+MAX_AUDIO = int(os.getenv("MAX_AUDIO_MB", "25")) * 1024 * 1024
+MAX_AUDIO_SEC = int(os.getenv("MAX_AUDIO_SEC", "600"))  # 10 min cap
 MAX_CTX = int(os.getenv("MAX_CTX_TOKENS", "12000"))
 
 RATES = {

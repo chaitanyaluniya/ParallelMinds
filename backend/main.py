@@ -132,9 +132,9 @@ async def parse_file(file: UploadFile) -> dict:
             item["error"] = out["error"]
         return item
 
-    if mime.startswith("image/") or name.lower().endswith((".jpg", ".jpeg", ".png")):
+    if mime.startswith("image/") or name.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
         img_mime = mime if mime.startswith("image/") else "image/jpeg"
-        out = ext_img(data, img_mime)
+        out = ext_img(data, img_mime, name)
         item = {"type": "image", "name": name, "text": out.get("text", "")}
         if out.get("confidence"):
             item["confidence"] = out["confidence"]

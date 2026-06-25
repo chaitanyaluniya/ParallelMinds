@@ -63,6 +63,10 @@ def _model() -> str:
     return os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
 
+def _vision_model() -> str:
+    return os.getenv("GROQ_VISION_MODEL", "meta-llama/llama-4-scout-17b-16e-instruct")
+
+
 def _call(fn):
     last = None
     for i in range(RETRIES):
@@ -107,14 +111,21 @@ def stream(prompt: str):
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
             stream=True,
-            stream_options={"include_usage": True},
         ))
+        parts = []
+        got_usage = False
         for chunk in res:
-            if chunk.usage:
+            if getattr(chunk, "usage", None):
                 _add(chunk.usage)
+                got_usage = True
             part = chunk.choices[0].delta.content
             if part:
+                parts.append(part)
                 yield part
+        if parts and not got_usage:
+            global _in, _out
+            _in += max(1, len(prompt) // 4)
+            _out += max(1, len("".join(parts)) // 4)
     except APIError as e:
         yield {"error": f"LLM failed: {e}"}
 
@@ -142,7 +153,7 @@ def vision(prompt: str, data: bytes, mime: str) -> dict:
     b64 = base64.b64encode(data).decode()
     try:
         res = _call(lambda: client.chat.completions.create(
-            model=os.getenv("GROQ_VISION_MODEL", "llama-3.2-11b-vision-preview"),
+            model=_vision_model(),
             messages=[{
                 "role": "user",
                 "content": [
@@ -151,6 +162,7 @@ def vision(prompt: str, data: bytes, mime: str) -> dict:
                 ],
             }],
             temperature=0.1,
+            max_completion_tokens=2048,
         ))
         if res.usage:
             track_vision(res.usage.prompt_tokens, res.usage.completion_tokens)

@@ -10,7 +10,7 @@ services:
       - key: GROQ_MODEL
         value: llama-3.3-70b-versatile
       - key: GROQ_VISION_MODEL
-        value: llama-3.2-11b-vision-preview
+        value: meta-llama/llama-4-scout-17b-16e-instruct
       - key: GROQ_WHISPER_MODEL
         value: whisper-large-v3
       - key: CORS_ORIGINS

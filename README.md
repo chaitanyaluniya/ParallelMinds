@@ -58,7 +58,7 @@ cd frontend && npm install && npm run dev
 |----------|----------|-------------|
 | `GROQ_API_KEY` | Yes | Groq API key |
 | `GROQ_MODEL` | No | Text model, default `llama-3.3-70b-versatile` |
-| `GROQ_VISION_MODEL` | No | OCR model, default `llama-3.2-11b-vision-preview` |
+| `GROQ_VISION_MODEL` | No | Vision/OCR model, default `meta-llama/llama-4-scout-17b-16e-instruct` |
 | `GROQ_WHISPER_MODEL` | No | Audio model, default `whisper-large-v3` |
 | `CORS_ORIGINS` | No | Comma-separated frontend URLs |
 

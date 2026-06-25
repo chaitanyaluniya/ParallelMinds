@@ -18,7 +18,7 @@ function Extracted({ items }) {
                 <span className="file-tag">{item.type?.toUpperCase()}</span>
                 <span>{item.name || item.type}</span>
               </div>
-              <pre>{item.text || "(empty)"}</pre>
+              <pre>{item.error ? `Error: ${item.error}` : item.text || "(empty)"}</pre>
             </div>
           ))}
         </div>
