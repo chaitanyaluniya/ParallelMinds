@@ -8,6 +8,7 @@ from html import unescape
 
 from youtube_transcript_api import YouTubeTranscriptApi
 from youtube_transcript_api._errors import NoTranscriptFound, TranscriptsDisabled, VideoUnavailable
+from youtube_transcript_api.proxies import GenericProxyConfig
 try:
     from yt_dlp import YoutubeDL
 except Exception:
@@ -44,11 +45,18 @@ def tries() -> list[str | None]:
     pool = proxy_list()
     if not pool:
         return [None]
-    # no-proxy first, then rotate through all proxies
-    out = [None]
+    # Proxies first to keep Render's IP away from YouTube blocks, direct last as a fallback.
+    out = []
     for _ in range(len(pool)):
         out.append(next_proxy())
+    out.append(None)
     return out
+
+
+def transcript_api(proxy: str | None = None) -> YouTubeTranscriptApi:
+    if not proxy:
+        return YouTubeTranscriptApi()
+    return YouTubeTranscriptApi(proxy_config=GenericProxyConfig(http_url=proxy, https_url=proxy))
 
 
 def open_url(url: str, timeout: int = 12, headers: dict | None = None, proxy: str | None = None) -> str:
@@ -75,38 +83,43 @@ def ext_yt(url: str) -> dict:
     if hit and time.time() - hit["ts"] < CACHE_TTL:
         return {"text": hit["text"], "video_id": vid}
 
-    try:
-        api = YouTubeTranscriptApi()
+    last_error = None
+    for px in tries():
         try:
-            t = api.fetch(vid, languages=["en", "en-US", "en-GB"])
+            api = transcript_api(px)
+            try:
+                t = api.fetch(vid, languages=["en", "en-US", "en-GB"])
+            except NoTranscriptFound:
+                t = api.fetch(vid)
+            text = " ".join(s.text for s in t.snippets).strip()
+            if text:
+                _CACHE[vid] = {"text": text, "ts": time.time()}
+                return {"text": text, "video_id": vid}
+        except TranscriptsDisabled:
+            return {"text": "", "video_id": vid, "error": "Captions disabled for this video"}
         except NoTranscriptFound:
-            t = api.fetch(vid)
-        text = " ".join(s.text for s in t.snippets).strip()
-        if text:
-            _CACHE[vid] = {"text": text, "ts": time.time()}
-        return {"text": text, "video_id": vid}
-    except TranscriptsDisabled:
-        return {"text": "", "video_id": vid, "error": "Captions disabled for this video"}
-    except NoTranscriptFound:
-        return {"text": "", "video_id": vid, "error": "No transcript available"}
-    except VideoUnavailable:
-        return {"text": "", "video_id": vid, "error": "Video unavailable"}
-    except Exception as e:
-        for px in tries():
-            txt = timedtext(vid, px)
-            if txt:
-                _CACHE[vid] = {"text": txt, "ts": time.time()}
-                return {"text": txt, "video_id": vid}
-            txt = watch_pg(vid, px)
-            if txt:
-                _CACHE[vid] = {"text": txt, "ts": time.time()}
-                return {"text": txt, "video_id": vid}
-            txt = from_ytdlp(url, px)
-            if txt:
-                _CACHE[vid] = {"text": txt, "ts": time.time()}
-                return {"text": txt, "video_id": vid}
-        note = " (try setting YT_PROXY_LIST on server)" if not proxy_list() else ""
-        return {"text": "", "video_id": vid, "error": f"Transcript fetch failed: {e}{note}"}
+            return {"text": "", "video_id": vid, "error": "No transcript available"}
+        except VideoUnavailable:
+            return {"text": "", "video_id": vid, "error": "Video unavailable"}
+        except Exception as e:
+            last_error = e
+
+        txt = timedtext(vid, px)
+        if txt:
+            _CACHE[vid] = {"text": txt, "ts": time.time()}
+            return {"text": txt, "video_id": vid}
+        txt = watch_pg(vid, px)
+        if txt:
+            _CACHE[vid] = {"text": txt, "ts": time.time()}
+            return {"text": txt, "video_id": vid}
+        txt = from_ytdlp(url, px)
+        if txt:
+            _CACHE[vid] = {"text": txt, "ts": time.time()}
+            return {"text": txt, "video_id": vid}
+
+    note = " (try setting YT_PROXY_LIST on server)" if not proxy_list() else ""
+    detail = f": {last_error}" if last_error else ""
+    return {"text": "", "video_id": vid, "error": f"Transcript fetch failed{detail}{note}"}
 
 
 def timedtext(vid: str, proxy: str | None = None) -> str:
