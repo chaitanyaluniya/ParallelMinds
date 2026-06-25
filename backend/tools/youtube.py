@@ -45,7 +45,6 @@ def tries() -> list[str | None]:
     pool = proxy_list()
     if not pool:
         return [None]
-    # Proxies first to keep Render's IP away from YouTube blocks, direct last as a fallback.
     out = []
     for _ in range(len(pool)):
         out.append(next_proxy())

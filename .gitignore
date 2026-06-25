@@ -52,6 +52,9 @@ tmp/
 node_modules/
 frontend/dist/
 
+# Project docs (local notes, scripts — not part of the app)
+docs/
+
 # OS
 .DS_Store
 Thumbs.db

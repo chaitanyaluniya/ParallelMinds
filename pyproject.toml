@@ -3,7 +3,7 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 pythonpath = ["backend"]
 python_files = ["test_*.py", "cases.py"]
-python_functions = ["test_*", "tc1", "tc2", "tc3", "tc3b", "tc4", "tc4b", "tc5", "rule_yt", "rule_code", "fmt", "test_trim", "test_mem", "test_rag"]
+python_functions = ["test_*", "tc1", "tc2", "tc3", "tc3b", "tc4", "tc4b", "tc5", "rule_yt", "rule_doc_q", "rule_code", "fmt", "test_trim", "test_mem", "test_pending", "test_no_loop", "test_rag"]
 
 [tool.ruff]
 line-length = 100

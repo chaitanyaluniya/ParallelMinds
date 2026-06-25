@@ -16,7 +16,9 @@ PARAGRAPH: (exactly 5 sentences)
 Content:
 {context}"""
 
-QA_PROMPT = """Answer the question using the content below. Be friendly and concise.
+QA_PROMPT = """Answer the question using ONLY the content below.
+Give a direct answer — do not ask follow-up questions.
+If the answer is not in the content, say it was not found in the document.
 
 Question: {query}
 

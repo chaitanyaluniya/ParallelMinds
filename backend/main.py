@@ -12,7 +12,7 @@ from agent import run, run_live
 from cost import estimate
 from limits import MAX_FILE
 from llm import reset as reset_usage
-from mem import ctx as hist_ctx
+from mem import clear_pend, ctx as hist_ctx, get_pend
 from tools.audio import ext_audio
 from tools.ocr import ext_img
 from tools.pdf import ext_pdf
@@ -68,14 +68,8 @@ async def process(
     session_id: str = Form(default=""),
 ):
     reset_usage()
-    extracted = []
-    for file in files:
-        extracted.append(await parse_file(file))
-
-    types = [e["type"] for e in extracted]
-    if query.strip():
-        types.append("text")
-
+    extracted = await load_files(files, query, session_id)
+    types = mk_types(extracted, query)
     return run(query, types, extracted, session_id)
 
 
@@ -86,19 +80,38 @@ async def stream(
     session_id: str = Form(default=""),
 ):
     reset_usage()
-    extracted = []
-    for file in files:
-        extracted.append(await parse_file(file))
-
-    types = [e["type"] for e in extracted]
-    if query.strip():
-        types.append("text")
+    extracted = await load_files(files, query, session_id)
+    types = mk_types(extracted, query)
 
     def events():
         for ev in run_live(query, types, extracted, session_id):
             yield f"data: {json.dumps(ev)}\n\n"
 
     return StreamingResponse(events(), media_type="text/event-stream")
+
+
+async def load_files(files, query: str, sid: str) -> list[dict]:
+    extracted = []
+    for file in files:
+        extracted.append(await parse_file(file))
+
+    if extracted and query.strip():
+        clear_pending(sid)
+        return extracted
+
+    if not extracted and query.strip():
+        pending = get_pending(sid)
+        if pending:
+            return pending
+
+    return extracted
+
+
+def mk_types(extracted: list[dict], query: str) -> list[str]:
+    types = [e["type"] for e in extracted]
+    if query.strip():
+        types.append("text")
+    return types
 
 
 def types_from(meta: list[dict], query: str) -> list[str]:

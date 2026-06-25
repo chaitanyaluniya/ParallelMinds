@@ -123,6 +123,34 @@ def rule_yt():
     assert detect_intent("provide transcript https://youtu.be/dQw4w9WgXcQ", ["text"], []) == "fetch_youtube"
 
 
+def rule_doc_q():
+    pdf = [{"type": "pdf", "name": "doc.pdf", "text": "Action Items table here"}]
+    assert detect_intent("fetch actions", ["pdf", "text"], pdf) == "ans_ques"
+    assert detect_intent("get the deadlines", ["pdf", "text"], pdf) == "ans_ques"
+    assert detect_intent("show owners", ["pdf", "text"], pdf) == "ans_ques"
+    assert detect_intent("do something with this", ["pdf", "text"], pdf) is None
+
+    # sparse PDF text still routes to Q&A, not clarification loop
+    sparse = [{"type": "pdf", "name": "scan.pdf", "text": ""}]
+    assert detect_intent("fetch actions", ["pdf", "text"], sparse) == "ans_ques"
+
+
+def test_no_loop(monkeypatch):
+    from agent import cls_intent
+    from mem import clear_pending, get_pending, mark_asked, set_pending
+
+    pdf = [{"type": "pdf", "name": "doc.pdf", "text": "Action item: ship v1 by Friday"}]
+    sid = "loop_sid"
+    clear_pending(sid)
+    set_pending(sid, pdf)
+    mark_asked(sid)
+
+    result = cls_intent("fetch actions", ["pdf", "text"], pdf, sid)
+    assert result["need_clr"] is False
+    assert result["intent"] == "ans_ques"
+    clear_pending(sid)
+
+
 def rule_code():
     code = "def foo():\n    return 1"
     assert detect_intent(f"{code}\nexplain", ["text"], []) == "explain_code"
@@ -149,6 +177,25 @@ def test_trim():
 def test_mem():
     add("tc_sid", "hello", "hi")
     assert "hello" in ctx("tc_sid")
+
+
+def test_pending(patch_intent, monkeypatch):
+    from mem import clear_pending, get_pending, set_pending
+
+    patch_intent("summarize")
+    pdf_txt = "Quarterly report on machine learning adoption in healthcare systems."
+    patch_llm(monkeypatch, f"ONE-LINE: ML in healthcare\nBULLETS:\n- adoption\nPARAGRAPH: {pdf_txt}")
+
+    set_pending("pend_sid", [{"type": "pdf", "name": "report.pdf", "text": pdf_txt}])
+    assert get_pending("pend_sid")
+
+    pending = get_pending("pend_sid")
+    result = run("summarize", ["pdf", "text"], pending, sid="pend_sid")
+    assert result["intent"] == "summarize"
+    assert result["extracted"][0]["name"] == "report.pdf"
+    assert not get_pending("pend_sid")
+
+    clear_pending("pend_sid")
 
 
 def test_rag(monkeypatch):

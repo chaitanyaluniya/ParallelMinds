@@ -6,7 +6,7 @@ from format import fmt_summary, strip_md
 from limits import MAX_CTX, trim, tokens
 from llm import snap, stream, text
 from mem import add as save_turn
-from mem import ctx as hist_ctx
+from mem import clear_pending, ctx as hist_ctx, mark_asked, set_pending, was_asked
 import rag
 
 from tools.code import code_prompt, looks_like_code
@@ -35,11 +35,16 @@ Intents:
 - compare — compare content across multiple inputs
 - fetch_youtube — fetch transcript or summarize a YouTube URL in the content
 
-need_clr=true if task is unclear, vague (e.g. "do something with this"), or multiple intents fit equally.
-If true, question must be one short follow-up.
+When uploaded content exists, treat fetch/get/show/list/find/extract/pull commands as ans_ques.
+Do not ask clarifying questions if the user named what they want, even briefly (e.g. "fetch actions", "get dates").
+
+need_clr=true ONLY when there is no uploaded content and the query is empty or truly vague.
+Never set need_clr if Has content is yes — pick ans_ques instead.
+If true, question must be one short follow-up. Never repeat a question the user already answered.
 
 Query: {query}
 Input types: {types}
+Has content: {has_doc}
 Recent chat: {history}
 """
 
@@ -74,6 +79,9 @@ def run_live(query: str, types: list[str], extracted: list[dict] | None = None, 
         return
 
     if result.get("need_clr"):
+        if extracted:
+            set_pending(sid, extracted)
+            mark_asked(sid)
         yield emit({
             "need_clr": True,
             "question": result.get("question") or "Could you clarify what you'd like me to do?",
@@ -92,7 +100,7 @@ def run_live(query: str, types: list[str], extracted: list[dict] | None = None, 
         return
 
     if intent == "ans_ques":
-        ctx, rag_used = prep_ctx(extracted, query, sid, k=3)
+        ctx, rag_used = prep_ctx(extracted, query, sid, k=8)
         yield from live_one("ans_ques", intent, qa_prompt(ctx, query), extracted, sid, query, fmt=strip_md, rag_used=rag_used)
         return
 
@@ -223,6 +231,8 @@ def emit(payload: dict, sid: str, query: str) -> dict:
     payload["usage"] = snap()
     if not payload.get("need_clr") and payload.get("answer"):
         save_turn(sid, query, payload["answer"])
+        if payload.get("extracted"):
+            clear_pending(sid)
     return done(payload)
 
 
@@ -237,19 +247,24 @@ def cls_intent(query: str, types: list[str], extracted: list[dict], sid: str = "
     if ruled:
         return {"intent": ruled, "need_clr": False, "question": None}
 
+    # user already got one clarifying question — never ask again, just answer
+    if query.strip() and was_asked(sid) and extracted:
+        return {"intent": "ans_ques", "need_clr": False, "question": None}
+
     if not os.getenv("GROQ_API_KEY"):
         return {"intent": None, "need_clr": True, "question": None, "error": "GROQ_API_KEY not set"}
 
     out = text(PROMPT.format(
         query=query.strip(),
         types=", ".join(types) or "none",
+        has_doc="yes" if has_doc(extracted) else "no",
         history=(hist_ctx(sid) if use_hist(query, extracted) else "") or "none",
     ))
     if out.get("error"):
         return {"intent": None, "need_clr": True, "question": None, "error": f"Classification failed: {out['error']}"}
     if not out.get("text"):
         return {"intent": None, "need_clr": True, "question": None, "error": "Empty LLM response"}
-    return prs_intent(out["text"])
+    return apply_intent(prs_intent(out["text"]), query, extracted, sid)
 
 
 def rule_intent(query: str, types: list[str], extracted: list[dict]) -> str | None:
@@ -271,10 +286,40 @@ def rule_intent(query: str, types: list[str], extracted: list[dict]) -> str | No
     if any(w in q for w in ["summarize", "summary", "summarise", "tl;dr", "key points"]):
         return "summarize"
 
-    if any(w in q for w in ["action item", "what are the", "extract", "find the"]):
+    # any specific ask + uploaded file → Q&A (works even if PDF text is sparse)
+    if extracted and query.strip() and not vague(q):
         return "ans_ques"
 
     return None
+
+
+def has_doc(extracted: list[dict]) -> bool:
+    return any((i.get("text") or "").strip() for i in extracted)
+
+
+def vague(q: str) -> bool:
+    q = q.lower().strip()
+    if not q:
+        return True
+    bad = [
+        "do something", "something with this", "something with these",
+        "not sure", "you decide", "anything", "whatever",
+    ]
+    if any(b in q for b in bad):
+        return True
+    return q in {"help", "hi", "hello", "?", "??"}
+
+
+def apply_intent(result: dict, query: str, extracted: list[dict], sid: str = "") -> dict:
+    if not result.get("need_clr") or not query.strip() or not extracted:
+        return result
+    if was_asked(sid) or not vague(query):
+        intent = result.get("intent") if result.get("intent") in INTENTS else "ans_ques"
+        return {"intent": intent, "need_clr": False, "question": None}
+    return result
+
+
+GENERIC = {"summarize", "summary", "summarise", "tl;dr", "key points", "overview"}
 
 
 def prep_ctx(extracted, query, sid="", k=3):
@@ -285,9 +330,15 @@ def prep_ctx(extracted, query, sid="", k=3):
 
     rag_used = False
     body = ""
-    if query.strip() and rag.should(extracted):
+    q = query.strip().lower()
+    broad = not q or any(w in q for w in GENERIC)
+
+    if rag.should(extracted):
         rag.index(sid, extracted)
-        body = rag.search(sid, query, k=k)
+        if broad:
+            body = rag.spread(sid, k=k)
+        elif q:
+            body = rag.search(sid, query, k=k)
         rag_used = bool(body)
 
     if not body:
@@ -299,8 +350,8 @@ def prep_ctx(extracted, query, sid="", k=3):
     if body:
         parts.append(body)
     elif query.strip():
-        q, _ = trim(query.strip(), budget)
-        parts.append(q)
+        qtxt, _ = trim(query.strip(), budget)
+        parts.append(qtxt)
     return "\n\n".join(parts), rag_used
 
 
