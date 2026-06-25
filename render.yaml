@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: parallelminds-api
+    name: parallelminds
     runtime: docker
     plan: starter
     healthCheckPath: /health
@@ -21,15 +21,4 @@ services:
       - key: MAX_AUDIO_SEC
         value: 600
       - key: CORS_ORIGINS
-        value: https://parallelminds-web.onrender.com,http://localhost:5173
-
-  - type: web
-    name: parallelminds-web
-    runtime: static
-    rootDir: frontend
-    buildCommand: npm ci && npm run build
-    staticPublishPath: dist
-    autoDeploy: true
-    envVars:
-      - key: VITE_API_URL
-        value: https://parallelminds-api.onrender.com
+        value: https://parallelminds.onrender.com,http://localhost:5173

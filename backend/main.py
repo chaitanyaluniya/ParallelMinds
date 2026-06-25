@@ -1,10 +1,12 @@
 import json
 import os
+from pathlib import Path
 
 from dotenv import load_dotenv
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 from agent import run, run_live
 from cost import estimate
@@ -19,6 +21,7 @@ load_dotenv()
 
 app = FastAPI(title="ParallelMinds")
 MAX_MB = MAX_FILE // (1024 * 1024)
+WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 
 origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
 
@@ -152,3 +155,23 @@ async def parse_file(file: UploadFile) -> dict:
         return item
 
     raise HTTPException(status_code=400, detail=f"Unsupported file type: {name}")
+
+
+if WEB_DIR.exists():
+    assets = WEB_DIR / "assets"
+    if assets.exists():
+        app.mount("/assets", StaticFiles(directory=str(assets)), name="assets")
+
+    @app.get("/")
+    def web_root():
+        return FileResponse(str(WEB_DIR / "index.html"))
+
+    @app.get("/{path:path}")
+    def web_app(path: str):
+        if path.startswith("api/") or path == "health":
+            raise HTTPException(status_code=404, detail="Not found")
+
+        file_path = WEB_DIR / path
+        if file_path.exists() and file_path.is_file():
+            return FileResponse(str(file_path))
+        return FileResponse(str(WEB_DIR / "index.html"))
