@@ -15,11 +15,12 @@ def ext_yt(url: str) -> dict:
         return {"text": "", "video_id": None, "error": "Invalid YouTube URL"}
 
     try:
+        api = YouTubeTranscriptApi()
         try:
-            snippets = YouTubeTranscriptApi.get_transcript(vid, languages=["en", "en-US", "en-GB"])
+            t = api.fetch(vid, languages=["en", "en-US", "en-GB"])
         except NoTranscriptFound:
-            snippets = YouTubeTranscriptApi.get_transcript(vid)
-        text = " ".join(s["text"] for s in snippets).strip()
+            t = api.fetch(vid)
+        text = " ".join(s.text for s in t.snippets).strip()
         return {"text": text, "video_id": vid}
     except TranscriptsDisabled:
         return {"text": "", "video_id": vid, "error": "Captions disabled for this video"}

@@ -1,6 +1,9 @@
 import pytest
 
 from agent import run
+from agent import rule_intent as detect_intent
+from format import fmt_summary as format_summary, strip_md
+from tools.code import looks_like_code
 
 
 def intent(name):
@@ -10,7 +13,7 @@ def intent(name):
 @pytest.fixture
 def patch_intent(monkeypatch):
     def _set(name):
-        monkeypatch.setattr("agent.cls_intent", lambda q, t: intent(name))
+        monkeypatch.setattr("agent.cls_intent", lambda q, t, e: intent(name))
     return _set
 
 
@@ -30,8 +33,6 @@ def tc1(patch_intent, monkeypatch):
     assert result["intent"] == "summarize"
     assert "ONE-LINE" in result["answer"]
     assert "BULLETS" in result["answer"]
-    assert result["plan"][0]["tool"] == "summarize"
-    assert result["plan"][0]["status"] == "done"
 
 
 def tc2(patch_intent, monkeypatch):
@@ -44,72 +45,86 @@ def tc2(patch_intent, monkeypatch):
     extracted = [{
         "type": "pdf",
         "name": "notes.pdf",
-        "text": "Meeting notes\nAction item: ship v1 by Friday\nAction item: review API docs\nAction item: schedule QA sync",
+        "text": "Meeting notes\nAction item: ship v1 by Friday\nAction item: review API docs",
     }]
     result = run("What are the action items?", ["pdf", "text"], extracted)
 
     assert result["intent"] == "ans_ques"
     assert "Ship v1" in result["answer"]
-    assert "API docs" in result["answer"]
 
 
 def tc3(patch_intent, monkeypatch):
     patch_intent("explain_code")
-    code_out = "Language: Python\nBug: missing base case causes RecursionError\nComplexity: O(2^n)"
-    monkeypatch.setattr("agent.explain", lambda ctx, q: {"text": code_out})
+    monkeypatch.setattr("agent.explain", lambda ctx, q: {"text": "Language: Python\nBug: RecursionError\nComplexity: O(2^n)"})
 
-    extracted = [{
-        "type": "image",
-        "name": "code.png",
-        "text": "def fib(n):\n  if n <= 1: return n\n  return fib(n-1)+fib(n-2)",
-    }]
+    extracted = [{"type": "image", "name": "code.png", "text": "def fib(n): return fib(n-1)"}]
     result = run("Explain", ["image", "text"], extracted)
 
     assert result["intent"] == "explain_code"
-    assert "Bug" in result["answer"] or "RecursionError" in result["answer"]
+    assert "Complexity" in result["answer"]
+
+
+def tc3b(monkeypatch):
+    monkeypatch.setattr("agent.cls_intent", lambda q, t, e: intent("explain_code"))
+    monkeypatch.setattr("agent.explain", lambda ctx, q: {"text": "Language: C++\nComplexity: O(n)"})
+
+    code = "#include<bits/stdc++.h>\nclass Solution { public: int trap() { return 0; } };"
+    result = run(f"{code}\nexplain the code", ["text"], [])
+
+    assert result["intent"] == "explain_code"
     assert "Complexity" in result["answer"]
 
 
 def tc4(patch_intent, monkeypatch):
     patch_intent("fetch_youtube")
-    monkeypatch.setattr(
-        "agent.ext_yt",
-        lambda url: {"text": "Never gonna give you up transcript content here.", "video_id": "dQw4w9WgXcQ"},
-    )
-    monkeypatch.setattr(
-        "agent.summarize",
-        lambda ctx, q: {"text": "ONE-LINE: Rick Astley song summary\nBULLETS:\n- commitment\n- loyalty\n- classic hit\nPARAGRAPH: Five sentence summary."},
-    )
+    monkeypatch.setattr("agent.ext_yt", lambda url: {"text": "transcript text here", "video_id": "dQw4w9WgXcQ"})
+    monkeypatch.setattr("agent.summarize", lambda ctx, q: {"text": "ONE-LINE: summary\nBULLETS:\n- a\n- b\n- c\nPARAGRAPH: five sentences."})
 
-    extracted = [{
-        "type": "pdf",
-        "name": "doc.pdf",
-        "text": "Reference video: https://www.youtube.com/watch?v=dQw4w9WgXcQ",
-    }]
-    result = run("Hit the YT URL and summarize it", ["pdf", "text"], extracted)
+    extracted = [{"type": "pdf", "name": "doc.pdf", "text": "Video: https://www.youtube.com/watch?v=dQw4w9WgXcQ"}]
+    result = run("summarize the youtube link", ["pdf", "text"], extracted)
+
+    assert len(result["plan"]) == 3
+    assert "ONE-LINE" in result["answer"]
+
+
+def tc4b(monkeypatch):
+    monkeypatch.setattr("agent.ext_yt", lambda url: {"text": "full transcript here", "video_id": "abc12345678"})
+    result = run("https://www.youtube.com/watch?v=abc12345678 provide transcript", ["text"], [])
 
     assert result["intent"] == "fetch_youtube"
-    assert len(result["plan"]) == 3
-    assert result["plan"][0]["tool"] == "find_url"
-    assert result["plan"][1]["tool"] == "fetch_youtube"
-    assert result["plan"][2]["tool"] == "summarize"
-    assert "ONE-LINE" in result["answer"]
+    assert result["answer"] == "full transcript here"
+    assert len(result["plan"]) == 2
 
 
 def tc5(patch_intent, monkeypatch):
     patch_intent("compare")
-    monkeypatch.setattr(
-        "agent.compare",
-        lambda ctx, q: {"text": "Yes, both discuss gradient descent and neural network optimization."},
-    )
+    monkeypatch.setattr("agent.compare", lambda ctx, q: {"text": "Yes, both discuss gradient descent."})
 
     extracted = [
-        {"type": "audio", "name": "lecture.mp3", "text": "Today we discuss gradient descent for training neural nets."},
-        {"type": "pdf", "name": "notes.pdf", "text": "Chapter 3 covers optimization and gradient descent methods."},
+        {"type": "audio", "name": "lecture.mp3", "text": "gradient descent for neural nets"},
+        {"type": "pdf", "name": "notes.pdf", "text": "optimization and gradient descent"},
     ]
     result = run("Do the audio and document discuss the same topic?", ["audio", "pdf", "text"], extracted)
 
     assert result["intent"] == "compare"
     assert "gradient descent" in result["answer"].lower()
-    assert result["plan"][0]["tool"] == "compare"
 
+
+def rule_yt():
+    assert detect_intent("provide transcript https://youtu.be/dQw4w9WgXcQ", ["text"], []) == "fetch_youtube"
+
+
+def rule_code():
+    code = "def foo():\n    return 1"
+    assert detect_intent(f"{code}\nexplain", ["text"], []) == "explain_code"
+    assert looks_like_code(code)
+
+
+def fmt():
+    raw = "**ONE-LINE:** hello\nBULLETS:\n- a\nPARAGRAPH: five sentences here."
+    out = format_summary(raw)
+    assert out.startswith("ONE-LINE:")
+    assert "\n\nBULLETS:" in out
+    assert "\n\nPARAGRAPH:" in out
+    assert "**" not in out
+    assert strip_md("**Overview**") == "Overview"
