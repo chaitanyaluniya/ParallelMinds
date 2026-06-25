@@ -7,6 +7,7 @@ from limits import MAX_CTX, trim, tokens
 from llm import snap, stream, text
 from mem import add as save_turn
 from mem import ctx as hist_ctx
+import rag
 
 from tools.code import code_prompt, looks_like_code
 from tools.compare import cmp_prompt
@@ -84,18 +85,20 @@ def run_live(query: str, types: list[str], extracted: list[dict] | None = None, 
         return
 
     intent = result["intent"]
-    ctx = prep_ctx(extracted, query, sid)
 
     if intent == "summarize":
-        yield from live_summarize(query, ctx, extracted, sid)
+        ctx, rag_used = prep_ctx(extracted, query, sid, k=6)
+        yield from live_summarize(query, ctx, extracted, sid, rag_used)
         return
 
     if intent == "ans_ques":
-        yield from live_one("ans_ques", intent, qa_prompt(ctx, query), extracted, sid, query)
+        ctx, rag_used = prep_ctx(extracted, query, sid, k=3)
+        yield from live_one("ans_ques", intent, qa_prompt(ctx, query), extracted, sid, query, rag_used=rag_used)
         return
 
     if intent == "sentiment":
-        yield from live_one("sentiment", intent, sent_prompt(ctx), extracted, sid, query)
+        ctx, rag_used = prep_ctx(extracted, query, sid, k=3)
+        yield from live_one("sentiment", intent, sent_prompt(ctx), extracted, sid, query, rag_used=rag_used)
         return
 
     if intent == "explain_code":
@@ -107,7 +110,8 @@ def run_live(query: str, types: list[str], extracted: list[dict] | None = None, 
         if len(extracted) < 2:
             yield emit(ok("Need at least 2 inputs to compare", intent, [], extracted), sid, query)
             return
-        yield from live_one("compare", intent, cmp_prompt(ctx, query), extracted, sid, query)
+        ctx, rag_used = prep_ctx(extracted, query, sid, k=5)
+        yield from live_one("compare", intent, cmp_prompt(ctx, query), extracted, sid, query, rag_used=rag_used)
         return
 
     if intent == "fetch_youtube":
@@ -117,19 +121,27 @@ def run_live(query: str, types: list[str], extracted: list[dict] | None = None, 
     yield emit(ok("", intent, [], extracted), sid, query)
 
 
-def live_one(tool: str, intent: str, prompt: str, extracted: list[dict], sid: str, query: str, fmt=None):
-    plan = [{"step": 1, "tool": tool, "status": "running"}]
+def live_one(tool, intent, prompt, extracted, sid, query, fmt=None, rag_used=False):
+    plan = []
+    step = 1
+    if rag_used:
+        plan.append({"step": step, "tool": "retrieve", "status": "done"})
+        step += 1
+    plan.append({"step": step, "tool": tool, "status": "running"})
     yield plan_ev(plan)
 
     text_out, err = yield from stream_llm(prompt, fmt)
-    plan[0]["status"] = "failed" if err else "done"
+    plan[-1]["status"] = "failed" if err else "done"
     yield plan_ev(plan)
     yield emit(ok(text_out if not err else err, intent, plan, extracted), sid, query)
 
 
-def live_summarize(query: str, ctx: str, extracted: list[dict], sid: str):
+def live_summarize(query, ctx, extracted, sid, rag_used=False):
     plan = []
     step = 1
+    if rag_used:
+        plan.append({"step": step, "tool": "retrieve", "status": "done"})
+        step += 1
     for item in extracted:
         if item.get("type") == "audio" and item.get("text"):
             plan.append({"step": step, "tool": "transcribe", "status": "done"})
@@ -145,9 +157,9 @@ def live_summarize(query: str, ctx: str, extracted: list[dict], sid: str):
     yield emit(ok(text_out if not err else err, "summarize", plan, extracted), sid, query)
 
 
-def live_youtube(query: str, extracted: list[dict], sid: str):
-    ctx = prep_ctx(extracted, query, sid)
-    urls = find_urls(f"{query}\n{ctx}")
+def live_youtube(query, extracted, sid):
+    raw = build_ctx(extracted, MAX_CTX)
+    urls = find_urls(f"{query}\n{raw}")
     if not urls:
         plan = [{"step": 1, "tool": "find_url", "status": "failed"}]
         yield plan_ev(plan)
@@ -265,13 +277,22 @@ def rule_intent(query: str, types: list[str], extracted: list[dict]) -> str | No
     return None
 
 
-def prep_ctx(extracted: list[dict], query: str, sid: str = "") -> str:
+def prep_ctx(extracted, query, sid="", k=3):
     hist = hist_ctx(sid)
     hist_tok = tokens(hist) if hist else 0
     q_tok = tokens(query) if query.strip() else 0
     budget = max(500, MAX_CTX - hist_tok - q_tok - 150)
 
-    body = build_ctx(extracted, budget)
+    rag_used = False
+    body = ""
+    if query.strip() and rag.should(extracted):
+        rag.index(sid, extracted)
+        body = rag.search(sid, query, k=k)
+        rag_used = bool(body)
+
+    if not body:
+        body = build_ctx(extracted, budget)
+
     parts = []
     if hist:
         parts.append(hist)
@@ -280,7 +301,7 @@ def prep_ctx(extracted: list[dict], query: str, sid: str = "") -> str:
     elif query.strip():
         q, _ = trim(query.strip(), budget)
         parts.append(q)
-    return "\n\n".join(parts)
+    return "\n\n".join(parts), rag_used
 
 
 def content(extracted: list[dict], query: str) -> str:

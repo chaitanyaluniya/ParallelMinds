@@ -5,6 +5,7 @@ from agent import rule_intent as detect_intent
 from format import fmt_summary as format_summary, strip_md
 from limits import trim, tokens
 from mem import add, ctx
+import rag
 from tools.code import looks_like_code
 
 
@@ -148,3 +149,12 @@ def test_trim():
 def test_mem():
     add("tc_sid", "hello", "hi")
     assert "hello" in ctx("tc_sid")
+
+
+def test_rag(monkeypatch):
+    monkeypatch.setattr("rag.embed", lambda texts: [[1.0, 0.0, 0.0] for _ in texts])
+    long_txt = "Action item: ship v1 by Friday. " * 120
+    rag.index("rag_sid", [{"name": "notes.pdf", "text": long_txt}])
+    hits = rag.search("rag_sid", "what are the action items?", k=3)
+    assert "Action item" in hits
+    assert rag.should([{"text": long_txt}])
