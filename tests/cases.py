@@ -3,6 +3,8 @@ import pytest
 from agent import run
 from agent import rule_intent as detect_intent
 from format import fmt_summary as format_summary, strip_md
+from limits import trim, tokens
+from mem import add, ctx
 from tools.code import looks_like_code
 
 
@@ -13,7 +15,7 @@ def intent(name):
 @pytest.fixture
 def patch_intent(monkeypatch):
     def _set(name):
-        monkeypatch.setattr("agent.cls_intent", lambda q, t, e: intent(name))
+        monkeypatch.setattr("agent.cls_intent", lambda q, t, e, sid="": intent(name))
     return _set
 
 
@@ -71,7 +73,7 @@ def tc3(patch_intent, monkeypatch):
 
 
 def tc3b(monkeypatch):
-    monkeypatch.setattr("agent.cls_intent", lambda q, t, e: intent("explain_code"))
+    monkeypatch.setattr("agent.cls_intent", lambda q, t, e, sid="": intent("explain_code"))
     patch_llm(monkeypatch, "Language: C++\nComplexity: O(n)")
 
     code = "#include<bits/stdc++.h>\nclass Solution { public: int trap() { return 0; } };"
@@ -134,3 +136,15 @@ def fmt():
     assert "\n\nPARAGRAPH:" in out
     assert "**" not in out
     assert strip_md("**Overview**") == "Overview"
+
+
+def test_trim():
+    long = "word " * 5000
+    out, cut = trim(long, 100)
+    assert cut is True
+    assert "truncated" in out
+
+
+def test_mem():
+    add("tc_sid", "hello", "hi")
+    assert "hello" in ctx("tc_sid")

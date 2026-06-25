@@ -1,5 +1,7 @@
 import pytest
 
+from limits import MAX_FILE
+
 
 @pytest.mark.asyncio
 async def test_health(client):
@@ -24,8 +26,19 @@ async def test_estimate(client):
 
 
 @pytest.mark.asyncio
+async def test_file_too_large(client):
+    big = b"x" * (MAX_FILE + 1)
+    res = await client.post(
+        "/api/process",
+        data={"query": "hi"},
+        files={"files": ("big.pdf", big, "application/pdf")},
+    )
+    assert res.status_code == 413
+
+
+@pytest.mark.asyncio
 async def test_process_routes_to_agent(client, monkeypatch):
-    def fake_run(query, types, extracted=None):
+    def fake_run(query, types, extracted=None, sid=""):
         return {
             "need_clr": False,
             "question": None,

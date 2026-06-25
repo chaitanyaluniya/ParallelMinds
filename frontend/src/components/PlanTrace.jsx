@@ -27,7 +27,7 @@ function Extracted({ items }) {
   );
 }
 
-export default function PlanTrace({ plan, extracted, live }) {
+export default function PlanTrace({ plan, extracted, live, usage }) {
   const [open, setOpen] = useState(true);
   if (!plan?.length && !extracted?.length) return null;
 
@@ -54,6 +54,11 @@ export default function PlanTrace({ plan, extracted, live }) {
         </div>
       )}
       {!live && <Extracted items={extracted} />}
+      {usage && !live && (
+        <div className="usage-tag">
+          {usage.tokens_in} in · {usage.tokens_out} out · {usage.cost_label}
+        </div>
+      )}
     </div>
   );
 }

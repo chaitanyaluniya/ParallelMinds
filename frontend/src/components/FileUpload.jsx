@@ -8,9 +8,20 @@ function icon(name) {
   return "FILE";
 }
 
-export default function FileUpload({ query, setQuery, files, setFiles, onSend, loading, cost }) {
+export default function FileUpload({ query, setQuery, files, setFiles, onSend, loading, cost, maxMb = 10 }) {
+  const maxBytes = maxMb * 1024 * 1024;
+
   function onPick(e) {
-    setFiles([...files, ...Array.from(e.target.files)]);
+    const picked = Array.from(e.target.files);
+    const ok = [];
+    for (const f of picked) {
+      if (f.size > maxBytes) {
+        alert(`${f.name} is too large (max ${maxMb}MB)`);
+        continue;
+      }
+      ok.push(f);
+    }
+    if (ok.length) setFiles([...files, ...ok]);
     e.target.value = "";
   }
 
@@ -41,8 +52,8 @@ export default function FileUpload({ query, setQuery, files, setFiles, onSend, l
       )}
       <div className="composer-row">
         {cost && (
-          <span className="cost-tag" title={cost.tools?.join(" → ")}>
-            {cost.cost_label}
+          <span className="cost-tag" title={cost.tools?.join?.(" → ") || "API usage"}>
+            {cost.estimate === false ? cost.cost_label : cost.cost_label || `~$${cost.cost_usd}`}
           </span>
         )}
         <label className="attach-btn">

@@ -25,7 +25,7 @@ export default function ChatWindow({ messages, loading, live }) {
           <div className={`bubble ${msg.role}`}>
             {msg.role === "bot" ? <BotText text={msg.text} /> : msg.text}
           </div>
-          {msg.role === "bot" && <PlanTrace plan={msg.plan} extracted={msg.extracted} />}
+          {msg.role === "bot" && <PlanTrace plan={msg.plan} extracted={msg.extracted} usage={msg.usage} />}
         </div>
       ))}
       {loading && live && (

@@ -3,6 +3,17 @@ import axios from "axios";
 import ChatWindow from "./components/ChatWindow";
 import FileUpload from "./components/FileUpload";
 
+const MAX_FILE = 10 * 1024 * 1024;
+
+function sid() {
+  let id = sessionStorage.getItem("pm_sid");
+  if (!id) {
+    id = crypto.randomUUID();
+    sessionStorage.setItem("pm_sid", id);
+  }
+  return id;
+}
+
 function read_sse(res, on_ev) {
   const reader = res.body.getReader();
   const dec = new TextDecoder();
@@ -28,6 +39,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [live, setLive] = useState(null);
   const [cost, setCost] = useState(null);
+  const [sessionId] = useState(sid);
 
   useEffect(() => {
     if (!query.trim() && files.length === 0) {
@@ -37,6 +49,7 @@ export default function App() {
     const t = setTimeout(async () => {
       const form = new FormData();
       form.append("query", query);
+      form.append("session_id", sessionId);
       form.append(
         "files_meta",
         JSON.stringify(files.map((f) => ({ name: f.name, size: f.size, type: f.type }))),
@@ -49,7 +62,7 @@ export default function App() {
       }
     }, 350);
     return () => clearTimeout(t);
-  }, [query, files]);
+  }, [query, files, sessionId]);
 
   async function handleSend() {
     const text = query.trim();
@@ -62,6 +75,7 @@ export default function App() {
 
     const form = new FormData();
     form.append("query", text);
+    form.append("session_id", sessionId);
     files.forEach((f) => form.append("files", f));
 
     try {
@@ -87,11 +101,14 @@ export default function App() {
             plan: ev.plan || s?.plan,
             extracted: ev.extracted || s?.extracted,
           }));
+          if (ev.usage) {
+            setCost({ ...ev.usage, estimate: false });
+          }
         }
       });
 
       if (final?.need_clr) {
-        setMessages((m) => [...m, { role: "bot", text: final.question }]);
+        setMessages((m) => [...m, { role: "bot", text: final.question, usage: final.usage }]);
       } else if (final) {
         setMessages((m) => [
           ...m,
@@ -100,6 +117,7 @@ export default function App() {
             text: final.answer || "No response",
             plan: final.plan,
             extracted: final.extracted,
+            usage: final.usage,
           },
         ]);
       }
@@ -135,6 +153,7 @@ export default function App() {
             onSend={handleSend}
             loading={loading}
             cost={cost}
+            maxMb={10}
           />
         </footer>
       </div>

@@ -290,6 +290,12 @@ body {
   flex-shrink: 0;
 }
 
+.usage-tag {
+  font-size: 0.6875rem;
+  color: var(--muted);
+  padding: 0.25rem 0.125rem;
+}
+
 .muted {
   color: var(--muted);
 }

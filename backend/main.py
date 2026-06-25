@@ -8,6 +8,9 @@ from fastapi.responses import StreamingResponse
 
 from agent import run, run_live
 from cost import estimate
+from limits import MAX_FILE
+from llm import reset as reset_usage
+from mem import ctx as hist_ctx
 from tools.audio import ext_audio
 from tools.ocr import ext_img
 from tools.pdf import ext_pdf
@@ -15,6 +18,7 @@ from tools.pdf import ext_pdf
 load_dotenv()
 
 app = FastAPI(title="ParallelMinds")
+MAX_MB = MAX_FILE // (1024 * 1024)
 
 origins = os.getenv("CORS_ORIGINS", "http://localhost:5173,http://127.0.0.1:5173").split(",")
 
@@ -29,22 +33,38 @@ app.add_middleware(
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "max_file_mb": MAX_MB}
 
 
 @app.post("/api/estimate")
-async def est(query: str = Form(default=""), files_meta: str = Form(default="[]")):
+async def est(
+    query: str = Form(default=""),
+    files_meta: str = Form(default="[]"),
+    session_id: str = Form(default=""),
+):
     try:
         meta = json.loads(files_meta)
     except json.JSONDecodeError:
         meta = []
 
+    for f in meta:
+        if f.get("size", 0) > MAX_FILE:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large (max {MAX_MB}MB): {f.get('name', 'file')}",
+            )
+
     types = types_from(meta, query)
-    return estimate(query, types, meta)
+    return estimate(query, types, meta, hist_ctx(session_id))
 
 
 @app.post("/api/process")
-async def process(query: str = Form(default=""), files: list[UploadFile] = File(default=[])):
+async def process(
+    query: str = Form(default=""),
+    files: list[UploadFile] = File(default=[]),
+    session_id: str = Form(default=""),
+):
+    reset_usage()
     extracted = []
     for file in files:
         extracted.append(await parse_file(file))
@@ -53,11 +73,16 @@ async def process(query: str = Form(default=""), files: list[UploadFile] = File(
     if query.strip():
         types.append("text")
 
-    return run(query, types, extracted)
+    return run(query, types, extracted, session_id)
 
 
 @app.post("/api/stream")
-async def stream(query: str = Form(default=""), files: list[UploadFile] = File(default=[])):
+async def stream(
+    query: str = Form(default=""),
+    files: list[UploadFile] = File(default=[]),
+    session_id: str = Form(default=""),
+):
+    reset_usage()
     extracted = []
     for file in files:
         extracted.append(await parse_file(file))
@@ -67,7 +92,7 @@ async def stream(query: str = Form(default=""), files: list[UploadFile] = File(d
         types.append("text")
 
     def events():
-        for ev in run_live(query, types, extracted):
+        for ev in run_live(query, types, extracted, session_id):
             yield f"data: {json.dumps(ev)}\n\n"
 
     return StreamingResponse(events(), media_type="text/event-stream")
@@ -92,6 +117,10 @@ def types_from(meta: list[dict], query: str) -> list[str]:
 async def parse_file(file: UploadFile) -> dict:
     data = await file.read()
     name = file.filename or "file"
+
+    if len(data) > MAX_FILE:
+        raise HTTPException(status_code=413, detail=f"File too large (max {MAX_MB}MB): {name}")
+
     mime = file.content_type or ""
 
     if mime == "application/pdf" or name.lower().endswith(".pdf"):
