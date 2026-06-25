@@ -1,5 +1,6 @@
 import re
 import time
+import os
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
@@ -18,6 +19,52 @@ PATTERN = re.compile(
 )
 CACHE_TTL = 3600
 _CACHE = {}
+_IDX = 0
+
+
+def proxy_list() -> list[str]:
+    raw = (os.getenv("YT_PROXY_LIST") or "").strip()
+    if not raw:
+        return []
+    parts = [p.strip() for p in re.split(r"[\n,;]+", raw) if p.strip()]
+    return parts
+
+
+def next_proxy() -> str | None:
+    global _IDX
+    pool = proxy_list()
+    if not pool:
+        return None
+    out = pool[_IDX % len(pool)]
+    _IDX += 1
+    return out
+
+
+def tries() -> list[str | None]:
+    pool = proxy_list()
+    if not pool:
+        return [None]
+    # no-proxy first, then rotate through all proxies
+    out = [None]
+    for _ in range(len(pool)):
+        out.append(next_proxy())
+    return out
+
+
+def open_url(url: str, timeout: int = 12, headers: dict | None = None, proxy: str | None = None) -> str:
+    hdr = headers or {"User-Agent": "Mozilla/5.0"}
+    req = urllib.request.Request(url, headers=hdr)
+    try:
+        if proxy:
+            opener = urllib.request.build_opener(
+                urllib.request.ProxyHandler({"http": proxy, "https": proxy}),
+            )
+            with opener.open(req, timeout=timeout) as r:
+                return r.read().decode("utf-8", errors="ignore")
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return r.read().decode("utf-8", errors="ignore")
+    except Exception:
+        return ""
 
 
 def ext_yt(url: str) -> dict:
@@ -45,30 +92,27 @@ def ext_yt(url: str) -> dict:
     except VideoUnavailable:
         return {"text": "", "video_id": vid, "error": "Video unavailable"}
     except Exception as e:
-        txt = timedtext(vid)
-        if txt:
-            _CACHE[vid] = {"text": txt, "ts": time.time()}
-            return {"text": txt, "video_id": vid}
-        txt = from_watch_page(vid)
-        if txt:
-            _CACHE[vid] = {"text": txt, "ts": time.time()}
-            return {"text": txt, "video_id": vid}
-        txt = from_ytdlp(url)
-        if txt:
-            _CACHE[vid] = {"text": txt, "ts": time.time()}
-            return {"text": txt, "video_id": vid}
-        return {"text": "", "video_id": vid, "error": f"Transcript fetch failed: {e}"}
+        for px in tries():
+            txt = timedtext(vid, px)
+            if txt:
+                _CACHE[vid] = {"text": txt, "ts": time.time()}
+                return {"text": txt, "video_id": vid}
+            txt = watch_pg(vid, px)
+            if txt:
+                _CACHE[vid] = {"text": txt, "ts": time.time()}
+                return {"text": txt, "video_id": vid}
+            txt = from_ytdlp(url, px)
+            if txt:
+                _CACHE[vid] = {"text": txt, "ts": time.time()}
+                return {"text": txt, "video_id": vid}
+        note = " (try setting YT_PROXY_LIST on server)" if not proxy_list() else ""
+        return {"text": "", "video_id": vid, "error": f"Transcript fetch failed: {e}{note}"}
 
 
-def timedtext(vid: str) -> str:
+def timedtext(vid: str, proxy: str | None = None) -> str:
     params = urllib.parse.urlencode({"v": vid, "lang": "en", "fmt": "srv3"})
     url = f"https://www.youtube.com/api/timedtext?{params}"
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    try:
-        with urllib.request.urlopen(req, timeout=12) as r:
-            raw = r.read().decode("utf-8", errors="ignore").strip()
-    except Exception:
-        return ""
+    raw = open_url(url, proxy=proxy).strip()
     if not raw:
         return ""
     try:
@@ -83,15 +127,13 @@ def timedtext(vid: str) -> str:
     return " ".join(parts).strip()
 
 
-def from_watch_page(vid: str) -> str:
-    req = urllib.request.Request(
+def watch_pg(vid: str, proxy: str | None = None) -> str:
+    html = open_url(
         f"https://www.youtube.com/watch?v={vid}",
         headers={"User-Agent": "Mozilla/5.0", "Accept-Language": "en-US,en;q=0.9"},
+        proxy=proxy,
     )
-    try:
-        with urllib.request.urlopen(req, timeout=12) as r:
-            html = r.read().decode("utf-8", errors="ignore")
-    except Exception:
+    if not html:
         return ""
 
     m = re.search(r'"captionTracks":(\[.*?\])', html)
@@ -111,15 +153,13 @@ def from_watch_page(vid: str) -> str:
     if not picked:
         picked = unescape(urls[0].replace("\\u0026", "&").replace("\\/", "/"))
 
-    try:
-        with urllib.request.urlopen(urllib.request.Request(picked, headers={"User-Agent": "Mozilla/5.0"}), timeout=12) as r:
-            raw = r.read().decode("utf-8", errors="ignore").strip()
-    except Exception:
+    raw = open_url(picked, proxy=proxy).strip()
+    if not raw:
         return ""
-    return parse_caption_xml(raw)
+    return prscap_xml(raw)
 
 
-def parse_caption_xml(raw: str) -> str:
+def prscap_xml(raw: str) -> str:
     if not raw:
         return ""
     try:
@@ -134,7 +174,7 @@ def parse_caption_xml(raw: str) -> str:
     return " ".join(parts).strip()
 
 
-def from_ytdlp(url: str) -> str:
+def from_ytdlp(url: str, proxy: str | None = None) -> str:
     if YoutubeDL is None:
         return ""
     opts = {
@@ -142,6 +182,8 @@ def from_ytdlp(url: str) -> str:
         "no_warnings": True,
         "skip_download": True,
     }
+    if proxy:
+        opts["proxy"] = proxy
     try:
         with YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -152,7 +194,7 @@ def from_ytdlp(url: str) -> str:
     auto = info.get("automatic_captions") or {}
     tracks = pick_tracks(subs) + pick_tracks(auto)
     for u in tracks:
-        txt = pull_track(u)
+        txt = pull_track(u, proxy)
         if txt:
             return txt
     return ""
@@ -174,20 +216,15 @@ def pick_tracks(pool: dict) -> list[str]:
     return urls[:3]
 
 
-def pull_track(url: str) -> str:
-    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-    try:
-        with urllib.request.urlopen(req, timeout=12) as r:
-            raw = r.read().decode("utf-8", errors="ignore").strip()
-    except Exception:
-        return ""
+def pull_track(url: str, proxy: str | None = None) -> str:
+    raw = open_url(url, proxy=proxy).strip()
     if not raw:
         return ""
     if raw.startswith("WEBVTT"):
         return parse_vtt(raw)
     if raw.startswith("{"):
         return parse_json3(raw)
-    return parse_caption_xml(raw)
+    return prscap_xml(raw)
 
 
 def parse_vtt(raw: str) -> str:

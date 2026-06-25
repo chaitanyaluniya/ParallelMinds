@@ -66,6 +66,7 @@ cd frontend && npm install && npm run dev
 | `MAX_AUDIO_SEC` | No | Audio duration limit in seconds (default 600) |
 | `MAX_CTX_TOKENS` | No | Context cap before truncation (default 12000) |
 | `MAX_HISTORY` | No | Chat memory turns per session (default 8) |
+| `YT_PROXY_LIST` | No | Comma/newline separated proxy URLs for rotating YouTube transcript fetch |
 
 ## API
 
