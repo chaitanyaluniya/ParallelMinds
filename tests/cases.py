@@ -137,18 +137,18 @@ def rule_doc_q():
 
 def test_no_loop(monkeypatch):
     from agent import cls_intent
-    from mem import clear_pending, get_pending, mark_asked, set_pending
+    from mem import clear_pend, get_pend, mark_asked, set_pend
 
     pdf = [{"type": "pdf", "name": "doc.pdf", "text": "Action item: ship v1 by Friday"}]
     sid = "loop_sid"
-    clear_pending(sid)
-    set_pending(sid, pdf)
+    clear_pend(sid)
+    set_pend(sid, pdf)
     mark_asked(sid)
 
     result = cls_intent("fetch actions", ["pdf", "text"], pdf, sid)
     assert result["need_clr"] is False
     assert result["intent"] == "ans_ques"
-    clear_pending(sid)
+    clear_pend(sid)
 
 
 def rule_code():
@@ -180,22 +180,22 @@ def test_mem():
 
 
 def test_pending(patch_intent, monkeypatch):
-    from mem import clear_pending, get_pending, set_pending
+    from mem import clear_pend, get_pend, set_pend
 
     patch_intent("summarize")
     pdf_txt = "Quarterly report on machine learning adoption in healthcare systems."
     patch_llm(monkeypatch, f"ONE-LINE: ML in healthcare\nBULLETS:\n- adoption\nPARAGRAPH: {pdf_txt}")
 
-    set_pending("pend_sid", [{"type": "pdf", "name": "report.pdf", "text": pdf_txt}])
-    assert get_pending("pend_sid")
+    set_pend("pend_sid", [{"type": "pdf", "name": "report.pdf", "text": pdf_txt}])
+    assert get_pend("pend_sid")
 
-    pending = get_pending("pend_sid")
+    pending = get_pend("pend_sid")
     result = run("summarize", ["pdf", "text"], pending, sid="pend_sid")
     assert result["intent"] == "summarize"
     assert result["extracted"][0]["name"] == "report.pdf"
-    assert not get_pending("pend_sid")
+    assert not get_pend("pend_sid")
 
-    clear_pending("pend_sid")
+    clear_pend("pend_sid")
 
 
 def test_rag(monkeypatch):

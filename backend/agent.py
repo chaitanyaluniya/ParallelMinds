@@ -6,7 +6,7 @@ from format import fmt_summary, strip_md
 from limits import MAX_CTX, trim, tokens
 from llm import snap, stream, text
 from mem import add as save_turn
-from mem import clear_pending, ctx as hist_ctx, mark_asked, set_pending, was_asked
+from mem import clear_pend, ctx as hist_ctx, mark_asked, set_pend, was_asked
 import rag
 
 from tools.code import code_prompt, looks_like_code
@@ -80,7 +80,7 @@ def run_live(query: str, types: list[str], extracted: list[dict] | None = None, 
 
     if result.get("need_clr"):
         if extracted:
-            set_pending(sid, extracted)
+            set_pend(sid, extracted)
             mark_asked(sid)
         yield emit({
             "need_clr": True,
@@ -232,7 +232,7 @@ def emit(payload: dict, sid: str, query: str) -> dict:
     if not payload.get("need_clr") and payload.get("answer"):
         save_turn(sid, query, payload["answer"])
         if payload.get("extracted"):
-            clear_pending(sid)
+            clear_pend(sid)
     return done(payload)
 
 

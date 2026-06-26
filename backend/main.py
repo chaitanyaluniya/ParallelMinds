@@ -96,11 +96,11 @@ async def load_files(files, query: str, sid: str) -> list[dict]:
         extracted.append(await parse_file(file))
 
     if extracted and query.strip():
-        clear_pending(sid)
+        clear_pend(sid)
         return extracted
 
     if not extracted and query.strip():
-        pending = get_pending(sid)
+        pending = get_pend(sid)
         if pending:
             return pending
 
